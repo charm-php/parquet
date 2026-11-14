@@ -1,0 +1,59 @@
+{
+    "name": "charm/parquet",
+    "description": "A pure-PHP Apache Parquet reader and writer: reads through a range function (files, strings, HTTP range requests), writes to bytes you put where you like.",
+    "type": "library",
+    "license": "MIT",
+    "authors": [
+        {
+            "name": "Frode Børli",
+            "email": "frode@ennerd.com"
+        }
+    ],
+    "keywords": [
+        "parquet",
+        "apache-parquet",
+        "reader",
+        "writer",
+        "columnar",
+        "thrift",
+        "snappy",
+        "zstd",
+        "brotli"
+    ],
+    "repositories": [
+        {
+            "type": "vcs",
+            "url": "https://github.com/charm-php/zstd"
+        },
+        {
+            "type": "vcs",
+            "url": "https://github.com/charm-php/brotli"
+        }
+    ],
+    "require": {
+        "php": ">=8.2",
+        "php-64bit": "*",
+        "charm/brotli": "^0.1.0-RC1",
+        "charm/zstd": "^0.1.0-RC1"
+    },
+    "require-dev": {
+        "phpunit/phpunit": "^11.5"
+    },
+    "suggest": {
+        "ext-zlib": "Needed to read pages compressed with GZIP",
+        "ext-brotli": "Reads BROTLI pages faster than charm/brotli, the pure-PHP decoder used when the extension is not loaded (brotli_uncompress())"
+    },
+    "autoload": {
+        "psr-4": {
+            "Charm\\Parquet\\": "src/"
+        }
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "Charm\\Parquet\\Tests\\": "tests/"
+        }
+    },
+    "config": {
+        "sort-packages": true
+    }
+}
