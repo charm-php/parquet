@@ -26,7 +26,7 @@ final class WriteOptions
             Codec::Snappy => SnappyEncoder::compress($body),
             Codec::Gzip => (string) \gzencode($body, 6),
             Codec::Zstd => \Charm\Zstd\Zstd::compress($body),
-            default => throw new \Charm\Parquet\UnsupportedException('writing with codec ' . $this->codec->name),
+            default => throw new \ValueError('cannot write with codec ' . $this->codec->name),
         };
     }
 }

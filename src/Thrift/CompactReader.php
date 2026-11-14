@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace Charm\Parquet\Thrift;
 
-use Charm\Parquet\FormatException;
+use Charm\Parquet\ParquetException;
 
 /**
  * Thrift's compact protocol, read from a string, with every read bounds-checked. A struct comes back as `array<int, mixed>`
@@ -25,7 +25,7 @@ final class CompactReader
     {
         $this->end = $end ?? \strlen($buf);
         if ($this->pos < 0 || $this->end > \strlen($buf) || $this->pos > $this->end) {
-            throw new FormatException('Thrift reader started outside its buffer');
+            throw new ParquetException('Thrift reader started outside its buffer');
         }
     }
 
@@ -38,7 +38,7 @@ final class CompactReader
     public function readStruct(): array
     {
         if (++$this->depth > self::MAX_DEPTH) {
-            throw new FormatException('Thrift data nested deeper than ' . self::MAX_DEPTH . ' levels');
+            throw new ParquetException('Thrift data nested deeper than ' . self::MAX_DEPTH . ' levels');
         }
         $out = [];
         $last = 0;
@@ -51,7 +51,7 @@ final class CompactReader
             $delta = $b >> 4;
             $id = $delta !== 0 ? $last + $delta : $this->zigzag();
             if ($id < 0 || $id > 0x7FFF) { // (field ids are 16-bit; a larger one would also overflow the next delta into a float)
-                throw new FormatException("Thrift field id $id is out of range");
+                throw new ParquetException("Thrift field id $id is out of range");
             }
             $last = $id;
             $out[$id] = $type === 1 ? true : ($type === 2 ? false : $this->value($type));
@@ -63,7 +63,7 @@ final class CompactReader
     private function byte(): int
     {
         if ($this->pos >= $this->end) {
-            throw new FormatException('Thrift data ends unexpectedly');
+            throw new ParquetException('Thrift data ends unexpectedly');
         }
         return \ord($this->buf[$this->pos++]);
     }
@@ -78,7 +78,7 @@ final class CompactReader
                 return $v;
             }
         }
-        throw new FormatException('Thrift varint longer than 10 bytes');
+        throw new ParquetException('Thrift varint longer than 10 bytes');
     }
 
     private function zigzag(): int
@@ -92,7 +92,7 @@ final class CompactReader
     {
         $n = $this->varint();
         if ($n < 0 || $n > $this->end - $this->pos) {
-            throw new FormatException('Thrift length ' . $n . ' exceeds the data left');
+            throw new ParquetException('Thrift length ' . $n . ' exceeds the data left');
         }
         return $n;
     }
@@ -113,7 +113,7 @@ final class CompactReader
                 return $this->zigzag();
             case 7:
                 if ($this->end - $this->pos < 8) {
-                    throw new FormatException('Thrift data ends unexpectedly');
+                    throw new ParquetException('Thrift data ends unexpectedly');
                 }
                 /** @var array{1: float} $u */
                 $u = \unpack('e', $this->buf, $this->pos);
@@ -132,13 +132,13 @@ final class CompactReader
                 if ($n === 15) {
                     $n = $this->count();
                 } elseif ($n > $this->end - $this->pos) {
-                    throw new FormatException('Thrift list longer than the data left');
+                    throw new ParquetException('Thrift list longer than the data left');
                 }
                 if ($et === 0 || $et > 12) {
-                    throw new FormatException("Thrift list with element type $et");
+                    throw new ParquetException("Thrift list with element type $et");
                 }
                 if (++$this->depth > self::MAX_DEPTH) {
-                    throw new FormatException('Thrift data nested deeper than ' . self::MAX_DEPTH . ' levels');
+                    throw new ParquetException('Thrift data nested deeper than ' . self::MAX_DEPTH . ' levels');
                 }
                 $v = [];
                 for ($i = 0; $i < $n; $i++) {
@@ -156,10 +156,10 @@ final class CompactReader
                 $ktype = $kt >> 4;
                 $vtype = $kt & 0x0F;
                 if ($ktype === 0 || $ktype > 12 || $vtype === 0 || $vtype > 12) {
-                    throw new FormatException('Thrift map with an invalid key or value type');
+                    throw new ParquetException('Thrift map with an invalid key or value type');
                 }
                 if (++$this->depth > self::MAX_DEPTH) {
-                    throw new FormatException('Thrift data nested deeper than ' . self::MAX_DEPTH . ' levels');
+                    throw new ParquetException('Thrift data nested deeper than ' . self::MAX_DEPTH . ' levels');
                 }
                 for ($i = 0; $i < $n; $i++) {
                     $k = $ktype === 1 || $ktype === 2 ? $this->byte() === 1 : $this->value($ktype);
@@ -170,6 +170,6 @@ final class CompactReader
             case 12:
                 return $this->readStruct();
         }
-        throw new FormatException("Thrift compact type $type is not valid");
+        throw new ParquetException("Thrift compact type $type is not valid");
     }
 }

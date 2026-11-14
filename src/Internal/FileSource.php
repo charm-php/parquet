@@ -4,8 +4,6 @@ declare(strict_types=1);
 
 namespace Charm\Parquet\Internal;
 
-use Charm\Parquet\ParquetException;
-
 /** The range function over a local file. The handle is opened on the first read and closed when this object is destroyed. */
 final class FileSource
 {
@@ -20,7 +18,7 @@ final class FileSource
     {
         $s = @\filesize($this->path);
         if ($s === false) {
-            throw new ParquetException("Cannot open {$this->path}");
+            throw new \RuntimeException("Cannot open {$this->path}");
         }
         return $s;
     }
@@ -30,7 +28,7 @@ final class FileSource
         if ($this->h === null) {
             $h = @\fopen($this->path, 'rb');
             if ($h === false) {
-                throw new ParquetException("Cannot open {$this->path}");
+                throw new \RuntimeException("Cannot open {$this->path}");
             }
             $this->h = $h;
         }
@@ -38,12 +36,15 @@ final class FileSource
             return '';
         }
         if (\fseek($this->h, $offset) !== 0) {
-            throw new ParquetException("Cannot seek to $offset in {$this->path}");
+            throw new \RuntimeException("Cannot seek to $offset in {$this->path}");
         }
         $out = '';
         while (\strlen($out) < $length) {
-            $part = \fread($this->h, $length - \strlen($out));
-            if ($part === false || $part === '') {
+            $part = @\fread($this->h, $length - \strlen($out));
+            if ($part === false) {
+                throw new \RuntimeException("Cannot read {$this->path}");
+            }
+            if ($part === '') {
                 break; // (the caller reports a short read)
             }
             $out .= $part;

@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace Charm\Parquet\Internal;
 
-use Charm\Parquet\FormatException;
+use Charm\Parquet\ParquetException;
 
 /** DELTA_BINARY_PACKED, DELTA_LENGTH_BYTE_ARRAY and DELTA_BYTE_ARRAY. */
 final class Delta
@@ -20,7 +20,7 @@ final class Delta
     public static function binaryPacked(string $raw, int &$p, int $end, bool $is64, int $count): array
     {
         if ($end > \strlen($raw) || $p > $end) {
-            throw new FormatException('DELTA_BINARY_PACKED data lies outside the page');
+            throw new ParquetException('DELTA_BINARY_PACKED data lies outside the page');
         }
         $blockSize = self::uvarint($raw, $p, $end);
         $miniblocks = self::uvarint($raw, $p, $end);
@@ -28,17 +28,17 @@ final class Delta
         $first = self::uvarint($raw, $p, $end);
         $first = (($first >> 1) & \PHP_INT_MAX) ^ -($first & 1);
         if ($total !== $count) {
-            throw new FormatException("DELTA_BINARY_PACKED stream holds $total values, the page needs $count");
+            throw new ParquetException("DELTA_BINARY_PACKED stream holds $total values, the page needs $count");
         }
         if ($count === 0) {
             return [];
         }
         if ($blockSize <= 0 || $blockSize % 128 !== 0 || $blockSize > 1 << 20 || $miniblocks <= 0 || $miniblocks > $blockSize || $blockSize % $miniblocks !== 0) {
-            throw new FormatException("DELTA_BINARY_PACKED block size $blockSize with $miniblocks miniblocks is not valid");
+            throw new ParquetException("DELTA_BINARY_PACKED block size $blockSize with $miniblocks miniblocks is not valid");
         }
         $perMini = \intdiv($blockSize, $miniblocks);
         if ($perMini % 8 !== 0) {
-            throw new FormatException('DELTA_BINARY_PACKED miniblocks must hold a multiple of 8 values');
+            throw new ParquetException('DELTA_BINARY_PACKED miniblocks must hold a multiple of 8 values');
         }
         if (!$is64) {
             $first = (($first & 0xFFFFFFFF) ^ 0x80000000) - 0x80000000; // (not + 0x80000000: that overflows into a float for large values)
@@ -50,7 +50,7 @@ final class Delta
             $minDelta = self::uvarint($raw, $p, $end);
             $minDelta = (($minDelta >> 1) & \PHP_INT_MAX) ^ -($minDelta & 1);
             if ($miniblocks > $end - $p) {
-                throw new FormatException('DELTA_BINARY_PACKED bit widths are cut off');
+                throw new ParquetException('DELTA_BINARY_PACKED bit widths are cut off');
             }
             $widthsAt = $p;
             $p += $miniblocks;
@@ -58,13 +58,13 @@ final class Delta
             for ($m = 0; $m < $miniblocks && $left > 0; $m++) {
                 $bw = \ord($raw[$widthsAt + $m]);
                 if ($bw > 64) {
-                    throw new FormatException("DELTA_BINARY_PACKED bit width $bw");
+                    throw new ParquetException("DELTA_BINARY_PACKED bit width $bw");
                 }
                 $take = \min($perMini, $left);
                 $full = $perMini * $bw >> 3; // (a miniblock is padded to its full size)
                 $need = ($take * $bw + 7) >> 3;
                 if ($need > $end - $p) {
-                    throw new FormatException('DELTA_BINARY_PACKED miniblock is cut off');
+                    throw new ParquetException('DELTA_BINARY_PACKED miniblock is cut off');
                 }
                 $q = $p;
                 $p += \min($full, $end - $p);
@@ -167,12 +167,12 @@ final class Delta
         $sum = 0;
         foreach ($lengths as $l) {
             if ($l < 0) {
-                throw new FormatException('DELTA_LENGTH_BYTE_ARRAY has a negative length');
+                throw new ParquetException('DELTA_LENGTH_BYTE_ARRAY has a negative length');
             }
             $sum += $l;
         }
         if ($sum > $end - $p) {
-            throw new FormatException("DELTA_LENGTH_BYTE_ARRAY values need $sum bytes, the page has " . ($end - $p));
+            throw new ParquetException("DELTA_LENGTH_BYTE_ARRAY values need $sum bytes, the page has " . ($end - $p));
         }
         foreach ($lengths as $l) {
             $out[] = \substr($raw, $p, $l);
@@ -196,12 +196,12 @@ final class Delta
         $prevLen = 0;
         foreach ($prefixes as $i => $pre) {
             if ($pre < 0 || $pre > $prevLen) {
-                throw new FormatException('DELTA_BYTE_ARRAY prefix length ' . $pre . ' is longer than the previous value');
+                throw new ParquetException('DELTA_BYTE_ARRAY prefix length ' . $pre . ' is longer than the previous value');
             }
             $prev = ($pre === 0 ? '' : \substr($prev, 0, $pre)) . $suffixes[$i];
             $prevLen = \strlen($prev);
             if ($fixedLength !== null && $prevLen !== $fixedLength) {
-                throw new FormatException("DELTA_BYTE_ARRAY value of $prevLen bytes in a FIXED_LEN_BYTE_ARRAY($fixedLength) column");
+                throw new ParquetException("DELTA_BYTE_ARRAY value of $prevLen bytes in a FIXED_LEN_BYTE_ARRAY($fixedLength) column");
             }
             $out[] = $prev;
         }
@@ -222,7 +222,7 @@ final class Delta
         $v = 0;
         for ($shift = 0; $shift < 70; $shift += 7) {
             if ($p >= $end) {
-                throw new FormatException('DELTA_BINARY_PACKED header is cut off');
+                throw new ParquetException('DELTA_BINARY_PACKED header is cut off');
             }
             $b = \ord($raw[$p++]);
             $v |= ($b & 0x7F) << $shift;
@@ -230,6 +230,6 @@ final class Delta
                 return $v;
             }
         }
-        throw new FormatException('DELTA_BINARY_PACKED varint is too long');
+        throw new ParquetException('DELTA_BINARY_PACKED varint is too long');
     }
 }

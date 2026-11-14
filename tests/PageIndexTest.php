@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace Charm\Parquet\Tests;
 
-use Charm\Parquet\{BoundaryOrder, FormatException, Reader, ValueMode};
+use Charm\Parquet\{BoundaryOrder, ParquetException, Reader, ValueMode};
 use Charm\Parquet\Internal\{Logical, RangeCompare};
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
@@ -173,7 +173,7 @@ final class PageIndexTest extends TestCase
         }
     }
 
-    public function testNegativeOffsetOrLimitIsAnInvalidArgument(): void
+    public function testNegativeOffsetOrLimitIsAValueError(): void
     {
         $r = Fixtures::reader('idx-small-v1');
         foreach ([fn () => \iterator_to_array($r->rows(null, -1)), fn () => \iterator_to_array($r->rows(null, 0, -1)), fn () => $r->readColumn(0, 'k', -1),
@@ -181,7 +181,7 @@ final class PageIndexTest extends TestCase
             try {
                 $call();
                 $this->fail('accepted');
-            } catch (\InvalidArgumentException) {
+            } catch (\ValueError) {
                 $this->addToAssertionCount(1);
             }
         }
@@ -422,7 +422,7 @@ final class PageIndexTest extends TestCase
         $this->assertSame([[0, 300]], $r->candidateRanges('f', \NAN, \NAN));
         $this->assertSame([[0, 300]], $r->candidateRanges('k', 'abc', 'xyz'));
         $this->assertSame([[0, 300]], $r->candidateRanges('s', 5, 6));
-        $this->expectException(\InvalidArgumentException::class);
+        $this->expectException(\ValueError::class);
         $r->candidateRanges('nope', 1, 2);
     }
 
@@ -541,7 +541,7 @@ final class PageIndexTest extends TestCase
             $r = Reader::fromString($bytes);
             \iterator_to_array($r->rows(['c'], 3, 2), false);
             $this->fail('the range was read');
-        } catch (FormatException) {
+        } catch (ParquetException) {
             $this->addToAssertionCount(1);
         } finally {
             \restore_error_handler();
@@ -559,7 +559,7 @@ final class PageIndexTest extends TestCase
         $this->assertSame([['l' => [5]], ['l' => []]], \iterator_to_array(Reader::fromString($honest)->rows(null, 1, 2), false));
         // a dishonest one says page 1 (which starts with repetition level 1) starts row 1: starting a read there must be refused
         $lie = NestedFileBuilder::file($top, [$data + ['index' => [0, 1, 3]]], 4);
-        $this->expectException(FormatException::class);
+        $this->expectException(ParquetException::class);
         \iterator_to_array(Reader::fromString($lie)->rows(null, 1, 1), false);
     }
 
@@ -576,7 +576,7 @@ final class PageIndexTest extends TestCase
             try {
                 Reader::fromString($f)->columnIndex(0, 'c');
                 $this->fail("accepted: $what");
-            } catch (FormatException) {
+            } catch (ParquetException) {
                 $this->addToAssertionCount(1);
             }
         }

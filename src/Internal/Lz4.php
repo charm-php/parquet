@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace Charm\Parquet\Internal;
 
-use Charm\Parquet\FormatException;
+use Charm\Parquet\ParquetException;
 
 /** LZ4: the block format (what LZ4_RAW pages hold), Hadoop framing around blocks, and the LZ4 frame format. */
 final class Lz4
@@ -16,7 +16,7 @@ final class Lz4
     {
         $out = self::blockUpTo($in, $expected, $n);
         if ($n !== $expected) {
-            throw new FormatException("LZ4 data ends after $n bytes, expected $expected");
+            throw new ParquetException("LZ4 data ends after $n bytes, expected $expected");
         }
         return $out;
     }
@@ -43,7 +43,7 @@ final class Lz4
             }
             try {
                 $out .= self::block(\substr($in, $p, $c), $d);
-            } catch (FormatException) {
+            } catch (ParquetException) {
                 return null;
             }
             $p += $c;
@@ -64,7 +64,7 @@ final class Lz4
         }
         $flg = \ord($in[4]);
         if (($flg >> 6) !== 1) {
-            throw new FormatException('LZ4 frame version is not 1');
+            throw new ParquetException('LZ4 frame version is not 1');
         }
         $blockChecksum = ($flg >> 4) & 1;
         $contentSize = ($flg >> 3) & 1;
@@ -75,7 +75,7 @@ final class Lz4
         $total = 0;
         while (true) {
             if ($len - $p < 4) {
-                throw new FormatException('LZ4 frame block header is cut off');
+                throw new ParquetException('LZ4 frame block header is cut off');
             }
             $bs = \ord($in[$p]) | (\ord($in[$p + 1]) << 8) | (\ord($in[$p + 2]) << 16) | (\ord($in[$p + 3]) << 24);
             $p += 4;
@@ -85,13 +85,13 @@ final class Lz4
             $stored = ($bs & 0x80000000) !== 0;
             $bs &= 0x7FFFFFFF;
             if ($bs > $len - $p) {
-                throw new FormatException('LZ4 frame block is cut off');
+                throw new ParquetException('LZ4 frame block is cut off');
             }
             $data = \substr($in, $p, $bs);
             $p += $bs + ($blockChecksum ? 4 : 0);
             if ($stored) {
                 if (\strlen($data) > $expected - $total) {
-                    throw new FormatException('LZ4 frame is larger than expected');
+                    throw new ParquetException('LZ4 frame is larger than expected');
                 }
                 $out .= $data;
                 $total += \strlen($data);
@@ -102,7 +102,7 @@ final class Lz4
             }
         }
         if ($total !== $expected) {
-            throw new FormatException("LZ4 frame holds $total bytes, expected $expected");
+            throw new ParquetException("LZ4 frame holds $total bytes, expected $expected");
         }
         return $out;
     }
@@ -120,14 +120,14 @@ final class Lz4
             if ($lit === 15) {
                 do {
                     if ($p >= $len) {
-                        throw new FormatException('LZ4 literal length is cut off');
+                        throw new ParquetException('LZ4 literal length is cut off');
                     }
                     $b = \ord($in[$p++]);
                     $lit += $b;
                 } while ($b === 255);
             }
             if ($lit > $len - $p || $lit > $max - $outLen) {
-                throw new FormatException('LZ4 literals run past the data or the expected size');
+                throw new ParquetException('LZ4 literals run past the data or the expected size');
             }
             $out .= \substr($in, $p, $lit);
             $p += $lit;
@@ -136,7 +136,7 @@ final class Lz4
                 break;
             }
             if ($len - $p < 2) {
-                throw new FormatException('LZ4 match offset is cut off');
+                throw new ParquetException('LZ4 match offset is cut off');
             }
             $off = \ord($in[$p]) | (\ord($in[$p + 1]) << 8);
             $p += 2;
@@ -144,7 +144,7 @@ final class Lz4
             if ($ml === 15) {
                 do {
                     if ($p >= $len) {
-                        throw new FormatException('LZ4 match length is cut off');
+                        throw new ParquetException('LZ4 match length is cut off');
                     }
                     $b = \ord($in[$p++]);
                     $ml += $b;
@@ -152,7 +152,7 @@ final class Lz4
             }
             $ml += 4;
             if ($off < 1 || $off > $outLen || $ml > $max - $outLen) {
-                throw new FormatException('LZ4 match reaches outside the output');
+                throw new ParquetException('LZ4 match reaches outside the output');
             }
             $start = $outLen - $off;
             $out .= $off >= $ml ? \substr($out, $start, $ml) : \substr(\str_repeat(\substr($out, $start, $off), \intdiv($ml, $off) + 1), 0, $ml);

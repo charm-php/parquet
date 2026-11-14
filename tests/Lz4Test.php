@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace Charm\Parquet\Tests;
 
-use Charm\Parquet\{Codec, FormatException};
+use Charm\Parquet\{Codec, ParquetException};
 use Charm\Parquet\Internal\{Compression, Lz4};
 use PHPUnit\Framework\TestCase;
 
@@ -77,7 +77,7 @@ final class Lz4Test extends TestCase
     #[\PHPUnit\Framework\Attributes\DataProvider('bad')]
     public function testBadBlocks(string $in, int $expected): void
     {
-        $this->expectException(FormatException::class);
+        $this->expectException(ParquetException::class);
         Lz4::block($in, $expected);
     }
 
@@ -90,7 +90,7 @@ final class Lz4Test extends TestCase
                 try {
                     Compression::decompress($codec, $body, $wrong);
                     $this->fail("{$codec->name} accepted size $wrong for $n");
-                } catch (FormatException) {
+                } catch (ParquetException) {
                     $this->addToAssertionCount(1);
                 }
             }
@@ -118,7 +118,7 @@ final class Lz4Test extends TestCase
                         try {
                             $out = Compression::decompress($kind === 'block' ? Codec::Lz4Raw : Codec::Lz4, $c, $n);
                             $this->assertSame($n, \strlen($out));
-                        } catch (FormatException) {
+                        } catch (ParquetException) {
                             $this->addToAssertionCount(1);
                         }
                     }

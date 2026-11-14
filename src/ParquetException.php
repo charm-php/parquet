@@ -4,7 +4,12 @@ declare(strict_types=1);
 
 namespace Charm\Parquet;
 
-/** The base of everything this package throws for a file it cannot read (and for a failing range function). */
-class ParquetException extends \RuntimeException
+/**
+ * The file is corrupt, truncated, or violates the Parquet format. It is an \UnexpectedValueException, so
+ * `catch (\UnexpectedValueException)` catches a data error from any charm package.
+ *
+ * `UnsupportedException` extends it: a valid file that uses something this version does not implement.
+ */
+class ParquetException extends \UnexpectedValueException
 {
 }

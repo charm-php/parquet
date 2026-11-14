@@ -184,14 +184,14 @@ final class NestedTest extends TestCase
         }
     }
 
-    public function testUnknownPathsAreInvalidArguments(): void
+    public function testUnknownPathsAreValueErrors(): void
     {
         $r = Fixtures::reader('nest-struct-v1');
         foreach ([fn () => $r->readColumn(0, 's.nope'), fn () => \iterator_to_array($r->rows(['nope'])), fn () => $r->readRowGroup(0, ['s.zzz'])] as $call) {
             try {
                 $call();
                 $this->fail('accepted');
-            } catch (\InvalidArgumentException) {
+            } catch (\ValueError) {
                 $this->addToAssertionCount(1);
             }
         }

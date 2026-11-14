@@ -81,6 +81,6 @@ final class CompactWriter
             case self::STRUCT:
                 return self::struct($value);
         }
-        throw new \InvalidArgumentException("Thrift type $type");
+        throw new \ValueError("Thrift type $type");
     }
 }

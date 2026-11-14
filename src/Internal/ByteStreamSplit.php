@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace Charm\Parquet\Internal;
 
-use Charm\Parquet\{FormatException, PhysicalType};
+use Charm\Parquet\{ParquetException, PhysicalType};
 
 /** BYTE_STREAM_SPLIT: byte k of every value is stored together, so $n values of width W are W streams of $n bytes. */
 final class ByteStreamSplit
@@ -18,12 +18,12 @@ final class ByteStreamSplit
         $w = match ($type) {
             PhysicalType::Int32, PhysicalType::Float => 4,
             PhysicalType::Int64, PhysicalType::Double => 8,
-            PhysicalType::FixedLenByteArray => $typeLength ?? throw new FormatException('FIXED_LEN_BYTE_ARRAY without a length'),
-            default => throw new FormatException("BYTE_STREAM_SPLIT cannot encode {$type->name}"),
+            PhysicalType::FixedLenByteArray => $typeLength ?? throw new ParquetException('FIXED_LEN_BYTE_ARRAY without a length'),
+            default => throw new ParquetException("BYTE_STREAM_SPLIT cannot encode {$type->name}"),
         };
         $avail = \strlen($raw) - $p;
         if ($n > \intdiv($avail, $w)) {
-            throw new FormatException("BYTE_STREAM_SPLIT values need " . ($n * $w) . " bytes, the page has $avail");
+            throw new ParquetException("BYTE_STREAM_SPLIT values need " . ($n * $w) . " bytes, the page has $avail");
         }
         $s = [];
         for ($k = 0; $k < $w; $k++) {

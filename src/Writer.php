@@ -75,13 +75,13 @@ final class Writer
         private readonly array $keyValueMetadata = [],
     ) {
         if (\PHP_INT_SIZE < 8) {
-            throw new UnsupportedException('64-bit PHP (PHP_INT_SIZE 8) is required');
+            throw new \Error('64-bit PHP (PHP_INT_SIZE 8) is required');
         }
         if (!\in_array($codec, [Codec::Uncompressed, Codec::Snappy, Codec::Gzip, Codec::Zstd], true)) {
-            throw new UnsupportedException('writing with codec ' . $codec->name);
+            throw new \ValueError('cannot write with codec ' . $codec->name . ' (UNCOMPRESSED, SNAPPY, GZIP and ZSTD are writable)');
         }
         if ($codec === Codec::Gzip && !\function_exists('gzencode')) {
-            throw new UnsupportedException('codec GZIP (needs ext-zlib)');
+            throw new \ValueError('cannot write with codec GZIP: ext-zlib is not loaded');
         }
         if ($pageVersion !== 1 && $pageVersion !== 2) {
             throw new \ValueError('pageVersion must be 1 or 2');
@@ -124,11 +124,14 @@ final class Writer
      * Adds a row. Returns the bytes that are final now (the start of the file with the first call; a row group when one fills), else ''.
      *
      * @param array<string, mixed> $row
+     * @throws \TypeError for a value of the wrong PHP type
+     * @throws \ValueError for a value that does not fit (the row is refused whole, the writer stays usable)
+     * @throws \Error if the writer is finished
      */
     public function encode(array $row): string
     {
         if ($this->closed) {
-            throw new \LogicException('The writer is finished');
+            throw new \Error('The writer is finished');
         }
         if ($this->flat) {
             $this->addFlat($row, $this->totalRows + $this->rowsInGroup);
@@ -242,7 +245,7 @@ final class Writer
     private function assertOpen(): void
     {
         if ($this->closed) {
-            throw new \LogicException('The writer is finished');
+            throw new \Error('The writer is finished');
         }
     }
 

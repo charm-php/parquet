@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace Charm\Parquet\Internal;
 
-use Charm\Parquet\{FormatException, PhysicalType};
+use Charm\Parquet\{ParquetException, PhysicalType};
 
 /** PLAIN-encoded values: one unpack() or str_split() per page for fixed-width types, two native calls per BYTE_ARRAY value. */
 final class PlainDecoder
@@ -45,7 +45,7 @@ final class PlainDecoder
                 self::need($n * 12, $avail, $type);
                 return \str_split(\substr($raw, $p, $n * 12), 12);
             case PhysicalType::FixedLenByteArray:
-                $l = $typeLength ?? throw new FormatException('FIXED_LEN_BYTE_ARRAY without a length');
+                $l = $typeLength ?? throw new ParquetException('FIXED_LEN_BYTE_ARRAY without a length');
                 self::need($n * $l, $avail, $type);
                 return \str_split(\substr($raw, $p, $n * $l), $l);
             case PhysicalType::Boolean:
@@ -59,12 +59,12 @@ final class PlainDecoder
                 $v = [];
                 for ($i = 0; $i < $n; $i++) {
                     if ($p + 4 > $rawLen) {
-                        throw new FormatException('A BYTE_ARRAY length is cut off');
+                        throw new ParquetException('A BYTE_ARRAY length is cut off');
                     }
                     $l = \unpack('V', $raw, $p)[1];
                     $p += 4;
                     if ($l > $rawLen - $p) {
-                        throw new FormatException('A BYTE_ARRAY value runs past the end of its page');
+                        throw new ParquetException('A BYTE_ARRAY value runs past the end of its page');
                     }
                     $v[] = \substr($raw, $p, $l);
                     $p += $l;
@@ -84,7 +84,7 @@ final class PlainDecoder
     private static function need(int $bytes, int $avail, PhysicalType $type): void
     {
         if ($bytes > $avail) {
-            throw new FormatException("PLAIN {$type->name} values need $bytes bytes, the page has $avail");
+            throw new ParquetException("PLAIN {$type->name} values need $bytes bytes, the page has $avail");
         }
     }
 }

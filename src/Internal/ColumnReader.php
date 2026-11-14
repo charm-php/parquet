@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace Charm\Parquet\Internal;
 
-use Charm\Parquet\{Codec, ColumnChunk, Encoding, FormatException, PageType, PhysicalType, UnsupportedException};
+use Charm\Parquet\{Codec, ColumnChunk, Encoding, ParquetException, PageType, PhysicalType, UnsupportedException};
 use Charm\Parquet\Thrift\CompactReader;
 
 /**
@@ -24,7 +24,7 @@ final class ColumnReader
     public static function read(string $chunk, ColumnChunk $meta, int $rowGroupRows, int $maxPageSize): array
     {
         if ($meta->numValues !== $rowGroupRows) {
-            throw new FormatException("Column '{$meta->leaf->dottedPath}' has {$meta->numValues} values in a row group of $rowGroupRows rows");
+            throw new ParquetException("Column '{$meta->leaf->dottedPath}' has {$meta->numValues} values in a row group of $rowGroupRows rows");
         }
         return self::run($chunk, $meta, $maxPageSize, true)[0];
     }
@@ -43,14 +43,14 @@ final class ColumnReader
         $leaf = $meta->leaf;
         if ($reps !== null) {
             if ($reps !== [] && $reps[0] !== 0) {
-                throw new FormatException("Column '{$leaf->dottedPath}' starts with repetition level {$reps[0]}: a chunk must begin a record");
+                throw new ParquetException("Column '{$leaf->dottedPath}' starts with repetition level {$reps[0]}: a chunk must begin a record");
             }
             $records = \array_count_values($reps)[0] ?? 0;
         } else {
             $records = $meta->numValues;
         }
         if ($records !== $rowGroupRows) {
-            throw new FormatException("Column '{$leaf->dottedPath}' holds $records records in a row group of $rowGroupRows rows");
+            throw new ParquetException("Column '{$leaf->dottedPath}' holds $records records in a row group of $rowGroupRows rows");
         }
         return [$vals, $defs, $reps];
     }
@@ -68,10 +68,10 @@ final class ColumnReader
         $records = $reps !== null ? (\array_count_values($reps)[0] ?? 0) : \count($defs ?? $vals);
         // (only the first page is one that the reader started at: later ones may continue its last row)
         if ($reps !== null && ($reps === [] || $reps[0] !== 0)) {
-            throw new FormatException("Column '{$leaf->dottedPath}': a page that the offset index says starts a row starts with repetition level " . ($reps[0] ?? 'none'));
+            throw new ParquetException("Column '{$leaf->dottedPath}': a page that the offset index says starts a row starts with repetition level " . ($reps[0] ?? 'none'));
         }
         if ($records !== $rows) {
-            throw new FormatException("Column '{$leaf->dottedPath}': the selected pages hold $records rows, the offset index says $rows");
+            throw new ParquetException("Column '{$leaf->dottedPath}': the selected pages hold $records rows, the offset index says $rows");
         }
         return [$vals, $defs, $reps];
     }
@@ -106,7 +106,7 @@ final class ColumnReader
 
         while ($partial ? $pos < $chunkLen : $seen < $total) {
             if ($pos >= $chunkLen) {
-                throw new FormatException("Column '$name' ends after $seen of $total values");
+                throw new ParquetException("Column '$name' ends after $seen of $total values");
             }
             $r = new CompactReader($chunk, $pos);
             $h = $r->readStruct();
@@ -115,7 +115,7 @@ final class ColumnReader
             $uncompressed = Fields::int($h, 2, 'PageHeader.uncompressed_page_size');
             $compressed = Fields::int($h, 3, 'PageHeader.compressed_page_size');
             if ($uncompressed < 0 || $compressed < 0 || $compressed > $chunkLen - $pos) {
-                throw new FormatException("Column '$name' has a page that is larger than its column chunk");
+                throw new ParquetException("Column '$name' has a page that is larger than its column chunk");
             }
             if ($uncompressed > $maxPageSize) {
                 throw new UnsupportedException("page of $uncompressed bytes above the page size limit of $maxPageSize");
@@ -129,7 +129,7 @@ final class ColumnReader
 
             if ($pageType === PageType::DictionaryPage) {
                 if ($dict !== null || $seen > 0) {
-                    throw new FormatException("Column '$name' has a dictionary page after another dictionary or after data");
+                    throw new ParquetException("Column '$name' has a dictionary page after another dictionary or after data");
                 }
                 $dh = Fields::struct($h, 7, 'PageHeader.dictionary_page_header');
                 $n = Fields::int($dh, 1, 'DictionaryPageHeader.num_values');
@@ -138,7 +138,7 @@ final class ColumnReader
                     throw new UnsupportedException('dictionary page encoding ' . self::encodingName($enc));
                 }
                 if ($n < 0 || $n > $uncompressed * 8) {
-                    throw new FormatException("Column '$name' has a dictionary of $n values");
+                    throw new ParquetException("Column '$name' has a dictionary of $n values");
                 }
                 $raw = Compression::decompress($codec, $body, $uncompressed);
                 $dict = PlainDecoder::decode($raw, 0, $type, $n, $leaf->typeLength);
@@ -158,7 +158,7 @@ final class ColumnReader
                 $enc = Fields::int($dh, 4, 'DataPageHeaderV2.encoding');
             }
             if ($nv < 0 || $nv > $total - $seen) {
-                throw new FormatException("Column '$name' has a page of $nv values, but only " . ($total - $seen) . ' are left in the chunk');
+                throw new ParquetException("Column '$name' has a page of $nv values, but only " . ($total - $seen) . ' are left in the chunk');
             }
 
             $defs = null;
@@ -179,29 +179,29 @@ final class ColumnReader
                 $rl = Fields::int($dh, 6, 'DataPageHeaderV2.repetition_levels_byte_length');
                 $isCompressed = Fields::optBool($dh, 7, 'DataPageHeaderV2.is_compressed') ?? true;
                 if ($dl < 0 || $rl < 0 || $dl + $rl > $compressed || $dl + $rl > $uncompressed) {
-                    throw new FormatException("Column '$name': level lengths of a page exceed the page");
+                    throw new ParquetException("Column '$name': level lengths of a page exceed the page");
                 }
                 $rest = \substr($body, $dl + $rl);
                 $values = $isCompressed && $codec !== Codec::Uncompressed
                     ? Compression::decompress($codec, $rest, $uncompressed - $dl - $rl)
-                    : ($compressed === $uncompressed ? $rest : throw new FormatException("Column '$name': an uncompressed page has two different sizes"));
+                    : ($compressed === $uncompressed ? $rest : throw new ParquetException("Column '$name': an uncompressed page has two different sizes"));
                 if ($maxRep > 0) {
                     $reps = RleHybrid::decode($body, 0, $rl, self::bitWidth($maxRep), $nv, $max);
                     if ($max > $maxRep) {
-                        throw new FormatException("Column '$name': a repetition level above the maximum of $maxRep");
+                        throw new ParquetException("Column '$name': a repetition level above the maximum of $maxRep");
                     }
                 }
                 if ($maxDef > 0 && $dl > 0) {
                     $defs = RleHybrid::decode($body, $rl, $rl + $dl, self::bitWidth($maxDef), $nv, $max);
                 } elseif ($maxDef > 0 && $nv > 0) {
-                    throw new FormatException("Column '$name': a page of an optional column has no definition levels");
+                    throw new ParquetException("Column '$name': a page of an optional column has no definition levels");
                 }
                 $raw = $values;
                 $rawLen = \strlen($raw);
                 $p = 0;
             }
             if ($defs !== null && $max > $maxDef) {
-                throw new FormatException("Column '$name': a definition level above the maximum of $maxDef");
+                throw new ParquetException("Column '$name': a definition level above the maximum of $maxDef");
             }
             if ($defs === null) {
                 $present = $nv;
@@ -218,10 +218,10 @@ final class ColumnReader
                     $vals = [];
                 } else {
                     if ($dict === null) {
-                        throw new FormatException("Column '$name': a dictionary-encoded page comes before any dictionary page");
+                        throw new ParquetException("Column '$name': a dictionary-encoded page comes before any dictionary page");
                     }
                     if ($p >= $rawLen) {
-                        throw new FormatException("Column '$name': a dictionary-encoded page has no bit width");
+                        throw new ParquetException("Column '$name': a dictionary-encoded page has no bit width");
                     }
                     $bw = \ord($raw[$p]);
                     $vals = RleHybrid::decodeDictionary($raw, $p + 1, $rawLen, $bw, $present, $dict);
@@ -231,11 +231,11 @@ final class ColumnReader
                     $vals = [];
                 } else {
                     if ($rawLen - $p < 4) {
-                        throw new FormatException("Column '$name': an RLE boolean page is cut off");
+                        throw new ParquetException("Column '$name': an RLE boolean page is cut off");
                     }
                     $len = \ord($raw[$p]) | (\ord($raw[$p + 1]) << 8) | (\ord($raw[$p + 2]) << 16) | (\ord($raw[$p + 3]) << 24);
                     if ($len < 0 || $len > $rawLen - $p - 4) {
-                        throw new FormatException("Column '$name': an RLE boolean run runs past the end of the page");
+                        throw new ParquetException("Column '$name': an RLE boolean run runs past the end of the page");
                     }
                     $bits = RleHybrid::decode($raw, $p + 4, $p + 4 + $len, 1, $present, $max);
                     $vals = [];
@@ -245,19 +245,19 @@ final class ColumnReader
                 }
             } elseif ($enc === Encoding::DeltaBinaryPacked->value) {
                 if ($type !== PhysicalType::Int32 && $type !== PhysicalType::Int64) {
-                    throw new FormatException("Column '$name': DELTA_BINARY_PACKED page in a {$type->name} column");
+                    throw new ParquetException("Column '$name': DELTA_BINARY_PACKED page in a {$type->name} column");
                 }
                 $q = $p;
                 $vals = Delta::binaryPacked($raw, $q, $rawLen, $type === PhysicalType::Int64, $present);
             } elseif ($enc === Encoding::DeltaLengthByteArray->value) {
                 if ($type !== PhysicalType::ByteArray) {
-                    throw new FormatException("Column '$name': DELTA_LENGTH_BYTE_ARRAY page in a {$type->name} column");
+                    throw new ParquetException("Column '$name': DELTA_LENGTH_BYTE_ARRAY page in a {$type->name} column");
                 }
                 $q = $p;
                 $vals = Delta::lengthByteArray($raw, $q, $rawLen, $present);
             } elseif ($enc === Encoding::DeltaByteArray->value) {
                 if ($type !== PhysicalType::ByteArray && $type !== PhysicalType::FixedLenByteArray) {
-                    throw new FormatException("Column '$name': DELTA_BYTE_ARRAY page in a {$type->name} column");
+                    throw new ParquetException("Column '$name': DELTA_BYTE_ARRAY page in a {$type->name} column");
                 }
                 $q = $p;
                 $vals = Delta::byteArray($raw, $q, $rawLen, $present, $type === PhysicalType::FixedLenByteArray ? $leaf->typeLength : null);
@@ -293,7 +293,7 @@ final class ColumnReader
             $seen += $nv;
         }
         if ($partial && $seen > $meta->numValues) {
-            throw new FormatException("Column '$name': the selected pages hold more values than the chunk");
+            throw new ParquetException("Column '$name': the selected pages hold more values than the chunk");
         }
         $join = static fn (array $p): array => \count($p) === 1 ? $p[0] : ($p === [] ? [] : \array_merge(...$p));
         return [$join($parts), $maxDef > 0 && !$merge ? $join($defParts) : null, $maxRep > 0 ? $join($repParts) : null];
@@ -321,18 +321,18 @@ final class ColumnReader
         $max = 0;
         if ($enc === Encoding::Rle->value) {
             if ($rawLen - $p < 4) {
-                throw new FormatException("Column '$name': a page ends inside its $what level length");
+                throw new ParquetException("Column '$name': a page ends inside its $what level length");
             }
             $len = \ord($raw[$p]) | (\ord($raw[$p + 1]) << 8) | (\ord($raw[$p + 2]) << 16) | (\ord($raw[$p + 3]) << 24);
             if ($len < 0 || $len > $rawLen - $p - 4) {
-                throw new FormatException("Column '$name': $what levels run past the end of the page");
+                throw new ParquetException("Column '$name': $what levels run past the end of the page");
             }
             $levels = RleHybrid::decode($raw, $p + 4, $p + 4 + $len, $bw, $nv, $max);
             $p += 4 + $len;
         } elseif ($enc === Encoding::BitPacked->value) {
             $bytes = ($nv * $bw + 7) >> 3;
             if ($bytes > $rawLen - $p) {
-                throw new FormatException("Column '$name': $what levels run past the end of the page");
+                throw new ParquetException("Column '$name': $what levels run past the end of the page");
             }
             $levels = [];
             $bit = 0;
@@ -351,7 +351,7 @@ final class ColumnReader
             throw new UnsupportedException("$what level encoding " . self::encodingName($enc));
         }
         if ($max > $maxLevel) {
-            throw new FormatException("Column '$name': a $what level above the maximum of $maxLevel");
+            throw new ParquetException("Column '$name': a $what level above the maximum of $maxLevel");
         }
         return $levels;
     }

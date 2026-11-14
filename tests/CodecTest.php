@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace Charm\Parquet\Tests;
 
-use Charm\Parquet\{Codec, FormatException, PhysicalType, UnsupportedException};
+use Charm\Parquet\{Codec, ParquetException, PhysicalType, UnsupportedException};
 use Charm\Parquet\Internal\{Compression, PlainDecoder, RleHybrid, Snappy};
 use Charm\Brotli\Brotli;
 use Charm\Zstd\Zstd;
@@ -57,7 +57,7 @@ final class CodecTest extends TestCase
     #[\PHPUnit\Framework\Attributes\DataProvider('badSnappy')]
     public function testBadSnappy(string $in, int $expected): void
     {
-        $this->expectException(FormatException::class);
+        $this->expectException(ParquetException::class);
         Snappy::decode($in, $expected);
     }
 
@@ -114,7 +114,7 @@ final class CodecTest extends TestCase
     public function testBadRle(string $raw, int $count, int $width): void
     {
         $max = 0;
-        $this->expectException(FormatException::class);
+        $this->expectException(ParquetException::class);
         RleHybrid::decode($raw, 0, \strlen($raw), $width, $count, $max);
     }
 
@@ -144,7 +144,7 @@ final class CodecTest extends TestCase
         }
     }
 
-    public function testPlainShortInputIsAFormatException(): void
+    public function testPlainShortInputIsAParquetException(): void
     {
         $bad = [
             [PhysicalType::Int32, 'abc', 1], [PhysicalType::Int64, \str_repeat('a', 15), 2], [PhysicalType::Float, 'abc', 1], [PhysicalType::Double, 'a', 1],
@@ -156,7 +156,7 @@ final class CodecTest extends TestCase
             try {
                 PlainDecoder::decode($raw, 0, $t, $n, 3);
                 $this->fail("{$t->name} accepted short input");
-            } catch (FormatException) {
+            } catch (ParquetException) {
                 $this->addToAssertionCount(1);
             }
         }
@@ -174,7 +174,7 @@ final class CodecTest extends TestCase
                 try {
                     Compression::decompress($codec, $body, $wrong);
                     $this->fail("{$codec->name} accepted a wrong expected size $wrong");
-                } catch (FormatException) {
+                } catch (ParquetException) {
                     $this->addToAssertionCount(1);
                 }
             }
@@ -186,7 +186,7 @@ final class CodecTest extends TestCase
         $a = \str_repeat('a', 5000);
         $b = \str_repeat('b', 7000);
         $this->assertSame($a . $b, Compression::decompress(Codec::Gzip, \gzencode($a) . \gzencode($b), 12000));
-        $this->expectException(FormatException::class);
+        $this->expectException(ParquetException::class);
         Compression::decompress(Codec::Gzip, \gzencode($a) . \substr(\gzencode($b), 0, -5), 12000);
     }
 
@@ -203,17 +203,36 @@ final class CodecTest extends TestCase
             try {
                 Compression::decompress($c, 'this is not compressed data', 10);
                 $this->fail($c->name . ' accepted garbage');
-            } catch (FormatException) {
+            } catch (ParquetException) {
                 $this->addToAssertionCount(1);
             }
         }
+    }
+
+    public function testZstdFailureIsAParquetExceptionWithTheCodecErrorAsPrevious(): void
+    {
+        try {
+            Compression::decompress(Codec::Zstd, 'this is not compressed data', 10);
+            $this->fail('accepted garbage');
+        } catch (ParquetException $e) {
+            $this->assertNotInstanceOf(\Charm\Parquet\UnsupportedException::class, $e);
+            $this->assertInstanceOf(\RuntimeException::class, $e); // (UnexpectedValueException)
+            $this->assertInstanceOf(\UnexpectedValueException::class, $e);
+            $this->assertNotNull($e->getPrevious());
+        }
+    }
+
+    public function testBrotliFailureIsAParquetException(): void
+    {
+        $this->expectException(ParquetException::class);
+        Compression::decompress(Codec::Brotli, 'this is not compressed data', 10);
     }
 
     public function testZstdBombIsStoppedByTheDeclaredSize(): void
     {
         $bomb = Zstd::compress(\str_repeat("\0", 8 << 20));
         $this->assertLessThan(5000, \strlen($bomb));
-        $this->expectException(FormatException::class);
+        $this->expectException(ParquetException::class);
         Compression::decompress(Codec::Zstd, $bomb, 1000);
     }
 
@@ -222,7 +241,7 @@ final class CodecTest extends TestCase
         // (the pure-PHP decoder refuses the meta-block before decoding it; ext-brotli stops one byte past the declared size)
         $bomb = Brotli::compress(\str_repeat("\0", 8 << 20));
         $this->assertLessThan(100, \strlen($bomb));
-        $this->expectException(FormatException::class);
+        $this->expectException(ParquetException::class);
         Compression::decompress(Codec::Brotli, $bomb, 1000);
     }
 

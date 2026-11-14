@@ -18,7 +18,7 @@ final class Ranges
         $out = [];
         foreach ($ranges as $r) {
             if (!\is_array($r) || \count($r) !== 2 || !\is_int($r[0] ?? null) || !\is_int($r[1] ?? null) || $r[0] < 0 || $r[1] < 0) {
-                throw new \InvalidArgumentException('A row range is [first row, row count] with two non-negative ints');
+                throw new \ValueError('A row range is [first row, row count] with two non-negative ints');
             }
             if ($r[1] > 0) {
                 $out[] = [$r[0], $r[0] + $r[1]];

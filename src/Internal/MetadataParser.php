@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace Charm\Parquet\Internal;
 
-use Charm\Parquet\{ColumnChunk, Codec, ConvertedType, Encoding, FileMetadata, FormatException, LogicalKind, LogicalType, PhysicalType, Repetition};
+use Charm\Parquet\{ColumnChunk, Codec, ConvertedType, Encoding, FileMetadata, ParquetException, LogicalKind, LogicalType, PhysicalType, Repetition};
 use Charm\Parquet\{RowGroup, Schema, SchemaNode, Statistics, TimeUnit, UnsupportedException};
 use Charm\Parquet\Thrift\CompactReader;
 
@@ -21,13 +21,13 @@ final class MetadataParser
         $elements = Fields::list($s, 2, 'FileMetaData.schema');
         $numRows = Fields::int($s, 3, 'FileMetaData.num_rows');
         if ($numRows < 0) {
-            throw new FormatException('FileMetaData.num_rows is negative');
+            throw new ParquetException('FileMetaData.num_rows is negative');
         }
         $schema = self::schema($elements);
         $groups = [];
         foreach (Fields::optList($s, 4, 'FileMetaData.row_groups') as $i => $rg) {
             if (!\is_array($rg)) {
-                throw new FormatException("row group $i is not a struct");
+                throw new ParquetException("row group $i is not a struct");
             }
             $groups[] = self::rowGroup($rg, $schema, $i);
         }
@@ -46,16 +46,16 @@ final class MetadataParser
     {
         $n = \count($elements);
         if ($n === 0) {
-            throw new FormatException('The schema has no elements');
+            throw new ParquetException('The schema has no elements');
         }
         $i = 0;
         $leaf = 0;
         $root = self::node($elements, $i, $n, [], 0, 0, true, 0, $leaf);
         if ($i !== $n) {
-            throw new FormatException('The schema has ' . ($n - $i) . ' elements that belong to no group');
+            throw new ParquetException('The schema has ' . ($n - $i) . ' elements that belong to no group');
         }
         if ($root->isLeaf()) {
-            throw new FormatException('The schema root is not a group');
+            throw new ParquetException('The schema root is not a group');
         }
         return new Schema($root);
     }
@@ -67,23 +67,23 @@ final class MetadataParser
     private static function node(array $el, int &$i, int $n, array $parentPath, int $defLevel, int $repLevel, bool $isRoot, int $depth, int &$leaf): SchemaNode
     {
         if ($i >= $n) {
-            throw new FormatException('The schema ends before all groups are complete');
+            throw new ParquetException('The schema ends before all groups are complete');
         }
         if ($depth > self::MAX_SCHEMA_DEPTH) {
-            throw new FormatException('The schema is nested deeper than ' . self::MAX_SCHEMA_DEPTH . ' levels');
+            throw new ParquetException('The schema is nested deeper than ' . self::MAX_SCHEMA_DEPTH . ' levels');
         }
         $e = $el[$i++];
         if (!\is_array($e)) {
-            throw new FormatException('A schema element is not a struct');
+            throw new ParquetException('A schema element is not a struct');
         }
         $name = Fields::optString($e, 4, 'SchemaElement.name');
         if ($name === null) {
-            throw new FormatException('A schema element has no name');
+            throw new ParquetException('A schema element has no name');
         }
         $type = Fields::optInt($e, 1, 'SchemaElement.type');
-        $physical = $type === null ? null : (PhysicalType::tryFrom($type) ?? throw new FormatException("Unknown physical type $type"));
+        $physical = $type === null ? null : (PhysicalType::tryFrom($type) ?? throw new ParquetException("Unknown physical type $type"));
         $rep = Fields::optInt($e, 3, 'SchemaElement.repetition_type');
-        $repetition = $isRoot ? null : ($rep === null ? Repetition::Required : (Repetition::tryFrom($rep) ?? throw new FormatException("Unknown repetition type $rep")));
+        $repetition = $isRoot ? null : ($rep === null ? Repetition::Required : (Repetition::tryFrom($rep) ?? throw new ParquetException("Unknown repetition type $rep")));
         $numChildren = Fields::optInt($e, 5, 'SchemaElement.num_children');
         $length = Fields::optInt($e, 2, 'SchemaElement.type_length');
         $ct = Fields::optInt($e, 6, 'SchemaElement.converted_type');
@@ -98,19 +98,19 @@ final class MetadataParser
         $isGroup = $physical === null;
         if ($isGroup) {
             if ($numChildren === null || $numChildren < 0) {
-                throw new FormatException("Schema element '$name' has no type and no children");
+                throw new ParquetException("Schema element '$name' has no type and no children");
             }
             if ($numChildren > $n - $i) {
-                throw new FormatException("Schema group '$name' announces $numChildren children, but only " . ($n - $i) . ' elements are left');
+                throw new ParquetException("Schema group '$name' announces $numChildren children, but only " . ($n - $i) . ' elements are left');
             }
             for ($c = 0; $c < $numChildren; $c++) {
                 $children[] = self::node($el, $i, $n, $path, $def, $rl, false, $depth + 1, $leaf);
             }
         } elseif ($numChildren !== null && $numChildren > 0) {
-            throw new FormatException("Schema element '$name' has a type and children");
+            throw new ParquetException("Schema element '$name' has a type and children");
         }
         if ($physical === PhysicalType::FixedLenByteArray && ($length === null || $length <= 0)) {
-            throw new FormatException("Schema element '$name' is FIXED_LEN_BYTE_ARRAY without a positive type_length");
+            throw new ParquetException("Schema element '$name' is FIXED_LEN_BYTE_ARRAY without a positive type_length");
         }
         return new SchemaNode(
             $name,
@@ -172,16 +172,16 @@ final class MetadataParser
         $cols = Fields::list($rg, 1, "RowGroup $index columns");
         $leaves = $schema->leaves;
         if (\count($cols) !== \count($leaves)) {
-            throw new FormatException("Row group $index has " . \count($cols) . ' column chunks for ' . \count($leaves) . ' columns');
+            throw new ParquetException("Row group $index has " . \count($cols) . ' column chunks for ' . \count($leaves) . ' columns');
         }
         $numRows = Fields::int($rg, 3, "RowGroup $index num_rows");
         if ($numRows < 0) {
-            throw new FormatException("Row group $index has a negative row count");
+            throw new ParquetException("Row group $index has a negative row count");
         }
         $chunks = [];
         foreach ($cols as $k => $c) {
             if (!\is_array($c)) {
-                throw new FormatException("A column chunk of row group $index is not a struct");
+                throw new ParquetException("A column chunk of row group $index is not a struct");
             }
             $chunks[] = self::columnChunk($c, $leaves[$k], $index);
         }
@@ -208,25 +208,25 @@ final class MetadataParser
                 isset($c[9]) || $encrypted ? "encrypted column metadata in column '{$leaf->dottedPath}'" : "column '{$leaf->dottedPath}' has no column metadata");
         }
         $t = Fields::int($md, 1, "$what type");
-        $type = PhysicalType::tryFrom($t) ?? throw new FormatException("$what has unknown physical type $t");
+        $type = PhysicalType::tryFrom($t) ?? throw new ParquetException("$what has unknown physical type $t");
         if ($type !== $leaf->physicalType) {
-            throw new FormatException("$what has type {$type->name}, the schema says {$leaf->physicalType?->name}");
+            throw new ParquetException("$what has type {$type->name}, the schema says {$leaf->physicalType?->name}");
         }
         $path = [];
         foreach (Fields::list($md, 3, "$what path_in_schema") as $part) {
             if (!\is_string($part)) {
-                throw new FormatException("$what has a path_in_schema entry that is not a string");
+                throw new ParquetException("$what has a path_in_schema entry that is not a string");
             }
             $path[] = $part;
         }
         if ($path !== $leaf->path) {
-            throw new FormatException("$what: path_in_schema '" . \implode('.', $path) . "' does not match the schema");
+            throw new ParquetException("$what: path_in_schema '" . \implode('.', $path) . "' does not match the schema");
         }
         $encodings = [];
         $encodingIds = [];
         foreach (Fields::list($md, 2, "$what encodings") as $e) {
             if (!\is_int($e)) {
-                throw new FormatException("$what has an encoding that is not an integer");
+                throw new ParquetException("$what has an encoding that is not an integer");
             }
             $encodingIds[] = $e;
             $known = Encoding::tryFrom($e);
@@ -241,7 +241,7 @@ final class MetadataParser
         $compressed = Fields::int($md, 7, "$what total_compressed_size");
         $dataOffset = Fields::int($md, 9, "$what data_page_offset");
         if ($numValues < 0 || $uncompressed < 0 || $compressed < 0 || $dataOffset < 0) {
-            throw new FormatException("$what has a negative size, count or offset");
+            throw new ParquetException("$what has a negative size, count or offset");
         }
         $stats = Fields::optStruct($md, 12, "$what statistics");
         return new ColumnChunk(
@@ -296,9 +296,9 @@ final class MetadataParser
         $out = [];
         foreach ($list as $kv) {
             if (!\is_array($kv)) {
-                throw new FormatException('A key-value entry is not a struct');
+                throw new ParquetException('A key-value entry is not a struct');
             }
-            $out[Fields::optString($kv, 1, 'KeyValue.key') ?? throw new FormatException('A key-value entry has no key')] = Fields::optString($kv, 2, 'KeyValue.value');
+            $out[Fields::optString($kv, 1, 'KeyValue.key') ?? throw new ParquetException('A key-value entry has no key')] = Fields::optString($kv, 2, 'KeyValue.value');
         }
         return $out;
     }

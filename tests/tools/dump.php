@@ -16,7 +16,7 @@ declare(strict_types=1);
  * recorded as status "error".
  */
 
-use Charm\Parquet\{FormatException, ParquetException, Reader, UnsupportedException, ValueMode};
+use Charm\Parquet\{ParquetException, Reader, UnsupportedException, ValueMode};
 use Charm\Parquet\Tests\Canonical;
 
 require __DIR__ . '/../../vendor/autoload.php';
@@ -73,11 +73,8 @@ try {
 } catch (UnsupportedException $e) {
     $result['status'] = 'unsupported';
     $result['message'] = $e->getMessage();
-} catch (FormatException $e) {
-    $result['status'] = 'format';
-    $result['message'] = $e->getMessage();
 } catch (ParquetException $e) {
-    $result['status'] = 'parquet';
+    $result['status'] = 'format';
     $result['message'] = $e->getMessage();
 } catch (Throwable $e) {
     $result['status'] = 'error';

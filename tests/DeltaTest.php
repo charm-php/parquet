@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace Charm\Parquet\Tests;
 
-use Charm\Parquet\{FormatException, PhysicalType, Reader};
+use Charm\Parquet\{ParquetException, PhysicalType, Reader};
 use Charm\Parquet\Internal\{ByteStreamSplit, Delta};
 use PHPUnit\Framework\TestCase;
 
@@ -196,7 +196,7 @@ final class DeltaTest extends TestCase
         $p = 0;
         $this->assertSame([], Delta::binaryPacked($enc, $p, \strlen($enc), true, 0));
         $this->assertSame(\strlen($enc), $p);
-        $this->expectException(FormatException::class);
+        $this->expectException(ParquetException::class);
         $p = 0;
         Delta::binaryPacked($enc, $p, \strlen($enc), true, 3);
     }
@@ -226,11 +226,11 @@ final class DeltaTest extends TestCase
     public function testBadStreams(string $enc, int $count): void
     {
         $p = 0;
-        $this->expectException(FormatException::class);
+        $this->expectException(ParquetException::class);
         Delta::binaryPacked($enc, $p, \strlen($enc), true, $count);
     }
 
-    public function testEveryTruncationOfAStreamIsAFormatException(): void
+    public function testEveryTruncationOfAStreamIsAParquetException(): void
     {
         \mt_srand(1);
         $v = [];
@@ -243,7 +243,7 @@ final class DeltaTest extends TestCase
             try {
                 Delta::binaryPacked(\substr($enc, 0, $n), $p, $n, true, \count($v));
                 $this->fail("a stream cut to $n bytes decoded");
-            } catch (FormatException) {
+            } catch (ParquetException) {
                 $this->addToAssertionCount(1);
             }
         }
@@ -276,7 +276,7 @@ final class DeltaTest extends TestCase
             try {
                 Delta::lengthByteArray($bad, $p, \strlen($bad), 2);
                 $this->fail('accepted');
-            } catch (FormatException) {
+            } catch (ParquetException) {
                 $this->addToAssertionCount(1);
             }
         }
@@ -310,14 +310,14 @@ final class DeltaTest extends TestCase
         try {
             Delta::byteArray($enc, $p, \strlen($enc), 2, null);
             $this->fail('accepted');
-        } catch (FormatException) {
+        } catch (ParquetException) {
             $this->addToAssertionCount(1);
         }
         $enc = self::encode([0, 1], false) . self::deltaLength(['abc', 'dx']);
         $p = 0;
         $this->assertSame(['abc', 'adx'], Delta::byteArray($enc, $p, \strlen($enc), 2, null));
         $p = 0;
-        $this->expectException(FormatException::class);
+        $this->expectException(ParquetException::class);
         Delta::byteArray($enc, $p, \strlen($enc), 2, 4); // fixed length 4, the values are 3 bytes
     }
 
@@ -356,7 +356,7 @@ final class DeltaTest extends TestCase
             try {
                 ByteStreamSplit::decode($raw, 0, $t, $n, 3);
                 $this->fail("{$t->name} accepted");
-            } catch (FormatException) {
+            } catch (ParquetException) {
                 $this->addToAssertionCount(1);
             }
         }

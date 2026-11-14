@@ -103,15 +103,15 @@ final class ReadTest extends TestCase
         $this->assertSame($cols['o_string'][17], $rows[17]['o_string']);
     }
 
-    public function testUnknownColumnIsAnInvalidArgument(): void
+    public function testUnknownColumnIsAValueError(): void
     {
-        $this->expectException(\InvalidArgumentException::class);
+        $this->expectException(\ValueError::class);
         Fixtures::reader('matrix-none-v1-dict')->readColumn(0, 'nope');
     }
 
-    public function testUnknownRowGroupIsOutOfRange(): void
+    public function testUnknownRowGroupIsAValueError(): void
     {
-        $this->expectException(\OutOfRangeException::class);
+        $this->expectException(\ValueError::class);
         Fixtures::reader('matrix-none-v1-dict')->readColumn(3, 'r_int32');
     }
 

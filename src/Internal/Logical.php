@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace Charm\Parquet\Internal;
 
-use Charm\Parquet\{ConvertedType, FormatException, LogicalKind, PhysicalType, SchemaNode, TimeUnit, UnsupportedException};
+use Charm\Parquet\{ConvertedType, ParquetException, LogicalKind, PhysicalType, SchemaNode, TimeUnit, UnsupportedException};
 
 /**
  * Logical-type conversion of a decoded column: chosen once per column chunk (converter() returns a closure for the whole list, or
@@ -123,7 +123,7 @@ final class Logical
     private static function decimal(?PhysicalType $phys, int $scale, ?int $typeLength): ?\Closure
     {
         if ($scale < 0 || $scale > 1000) {
-            throw new FormatException("DECIMAL scale $scale is not valid");
+            throw new ParquetException("DECIMAL scale $scale is not valid");
         }
         if ($phys === PhysicalType::Int32 || $phys === PhysicalType::Int64) {
             return self::decimalInts($scale, 0);
@@ -367,7 +367,7 @@ final class Logical
             foreach ($v as $i => $x) {
                 if ($x !== null) {
                     if (\strlen($x) !== 12) {
-                        throw new FormatException('An INT96 value is ' . \strlen($x) . ' bytes');
+                        throw new ParquetException('An INT96 value is ' . \strlen($x) . ' bytes');
                     }
                     $nanos = \unpack('P', $x)[1];
                     $julian = \unpack('l', $x, 8)[1];

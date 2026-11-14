@@ -37,7 +37,7 @@ final class Reader
     private array $groupIndex = [];
 
     /**
-     * @param \Closure(int, int): string $read
+     * @param \Closure(int, int): string $read exceptions it throws pass through unchanged; a return value that is not exactly $length bytes is an \UnexpectedValueException
      * @param int $size the size of the file in bytes
      * @param int $maxPageSize the largest uncompressed page accepted (UnsupportedException above it)
      * @param int $maxChunkValues the most values (level entries; rows for a flat column) in one column chunk accepted, which bounds the memory a column needs
@@ -52,7 +52,7 @@ final class Reader
         private readonly MapMode $mapMode = MapMode::Auto,
     ) {
         if (\PHP_INT_SIZE < 8) {
-            throw new UnsupportedException('64-bit PHP (PHP_INT_SIZE 8) is required: INT64 values and sizes are read as PHP ints');
+            throw new \Error('64-bit PHP (PHP_INT_SIZE 8) is required: INT64 values and sizes are read as PHP ints');
         }
         $this->metadata = $this->readFooter();
         foreach ($this->metadata->rowGroups as $i => $g) {
@@ -60,6 +60,11 @@ final class Reader
         }
     }
 
+    /**
+     * @throws \RuntimeException if the file cannot be opened or read
+     * @throws ParquetException if it is not a valid Parquet file
+     * @throws UnsupportedException if it uses something this version does not implement
+     */
     public static function fromFile(string $path, ValueMode $values = ValueMode::Logical, int $maxPageSize = 1 << 30, int $maxChunkValues = 1 << 25, MapMode $mapMode = MapMode::Auto): self
     {
         $source = new FileSource($path);
@@ -120,8 +125,8 @@ final class Reader
      */
     public function readColumn(int $rowGroup, string $column, int $offset = 0, ?int $limit = null): array
     {
-        $rg = $this->metadata->rowGroups[$rowGroup] ?? throw new \OutOfRangeException("There is no row group $rowGroup");
-        $node = $this->metadata->schema->node($column) ?? throw new \InvalidArgumentException("There is no column '$column'");
+        $rg = $this->metadata->rowGroups[$rowGroup] ?? throw new \ValueError("There is no row group $rowGroup");
+        $node = $this->metadata->schema->node($column) ?? throw new \ValueError("There is no column '$column'");
         return $this->columnOf($rg, $node, $this->groupRange($rg, $offset, $limit));
     }
 
@@ -133,11 +138,11 @@ final class Reader
      */
     public function readRowGroup(int $rowGroup, ?array $columns = null, int $offset = 0, ?int $limit = null): array
     {
-        $rg = $this->metadata->rowGroups[$rowGroup] ?? throw new \OutOfRangeException("There is no row group $rowGroup");
+        $rg = $this->metadata->rowGroups[$rowGroup] ?? throw new \ValueError("There is no row group $rowGroup");
         $range = $this->groupRange($rg, $offset, $limit);
         $out = [];
         foreach ($columns ?? \array_map(static fn (SchemaNode $n): string => $n->name, $this->metadata->schema->root->children) as $path) {
-            $node = $this->metadata->schema->node($path) ?? throw new \InvalidArgumentException("There is no column '$path'");
+            $node = $this->metadata->schema->node($path) ?? throw new \ValueError("There is no column '$path'");
             $out[$path] = $this->columnOf($rg, $node, $range);
         }
         return $out;
@@ -147,7 +152,7 @@ final class Reader
     private function groupRange(RowGroup $rg, int $offset, ?int $limit): ?array
     {
         if ($offset < 0 || ($limit !== null && $limit < 0)) {
-            throw new \InvalidArgumentException('offset and limit must not be negative');
+            throw new \ValueError('offset and limit must not be negative');
         }
         $start = \min($offset, $rg->numRows);
         $count = \min($limit ?? $rg->numRows, $rg->numRows - $start);
@@ -170,7 +175,7 @@ final class Reader
     public function rows(?array $columns = null, int $offset = 0, ?int $limit = null, ?array $ranges = null): \Generator
     {
         if ($offset < 0 || ($limit !== null && $limit < 0)) {
-            throw new \InvalidArgumentException('offset and limit must not be negative');
+            throw new \ValueError('offset and limit must not be negative');
         }
         $tops = $this->selection($columns);
         $want = $ranges === null ? [[0, \PHP_INT_MAX]] : Ranges::fromCounts($ranges);
@@ -198,7 +203,7 @@ final class Reader
             $lists = \array_values($cols);
             foreach ($lists as $i => $vals) {
                 if (\count($vals) !== $e - $s) {
-                    throw new FormatException("Field '{$names[$i]}' has " . \count($vals) . ' rows in a row group read of ' . ($e - $s));
+                    throw new ParquetException("Field '{$names[$i]}' has " . \count($vals) . ' rows in a row group read of ' . ($e - $s));
                 }
             }
             foreach ($local as [$a, $b]) {
@@ -216,8 +221,8 @@ final class Reader
      */
     public function readShredded(int $rowGroup, string $column): ShreddedColumn
     {
-        $rg = $this->metadata->rowGroups[$rowGroup] ?? throw new \OutOfRangeException("There is no row group $rowGroup");
-        $leaf = $this->metadata->schema->leaf($column) ?? throw new \InvalidArgumentException("There is no column '$column'");
+        $rg = $this->metadata->rowGroups[$rowGroup] ?? throw new \ValueError("There is no row group $rowGroup");
+        $leaf = $this->metadata->schema->leaf($column) ?? throw new \ValueError("There is no column '$column'");
         return $this->shred($rg, $leaf);
     }
 
@@ -238,7 +243,7 @@ final class Reader
         $sel = [];
         $tops = [];
         foreach ($columns as $path) {
-            $node = $schema->node($path) ?? throw new \InvalidArgumentException("There is no column '$path'");
+            $node = $schema->node($path) ?? throw new \ValueError("There is no column '$path'");
             $top = $schema->node($node->path[0]);
             $tops[$top->name] ??= $top;
             foreach (self::leavesUnder($node) as $l) {
@@ -304,7 +309,7 @@ final class Reader
      */
     private function assemble(RowGroup $rg, SchemaNode $node, ?array $sel, ?array $range = null): array
     {
-        $shape = Shape::field($node, $sel, $this->mapMode, $this->values) ?? throw new \InvalidArgumentException("Nothing is selected below '{$node->dottedPath}'");
+        $shape = Shape::field($node, $sel, $this->mapMode, $this->values) ?? throw new \ValueError("Nothing is selected below '{$node->dottedPath}'");
         $data = [];
         foreach ($shape->leaves as $leaf) {
             $data[$leaf->leafIndex] = $this->leafData($rg, $leaf, $range);
@@ -315,7 +320,7 @@ final class Reader
         $col = Assembler::wrap($col, $drv->cnt, $j0);
         $expected = $range === null ? $rg->numRows : $range[1];
         if (\count($col) !== $expected) {
-            throw new FormatException("'{$node->dottedPath}' assembled to " . \count($col) . " rows, expected $expected");
+            throw new ParquetException("'{$node->dottedPath}' assembled to " . \count($col) . " rows, expected $expected");
         }
         return $col;
     }
@@ -347,7 +352,7 @@ final class Reader
         return $out;
     }
 
-    /** Validates a column chunk (throws UnsupportedException or FormatException) and returns it. */
+    /** Validates a column chunk (throws UnsupportedException or ParquetException) and returns it. */
     private function checkedChunk(RowGroup $rg, SchemaNode $leaf): ColumnChunk
     {
         $meta = $rg->columns[$leaf->leafIndex ?? 0];
@@ -366,7 +371,7 @@ final class Reader
         $start = $meta->startOffset();
         $len = $meta->totalCompressedSize;
         if ($start < 0 || $len > $this->size || $start > $this->size - $len) {
-            throw new FormatException("Column '{$leaf->dottedPath}' lies outside the file");
+            throw new ParquetException("Column '{$leaf->dottedPath}' lies outside the file");
         }
         return $meta;
     }
@@ -461,7 +466,7 @@ final class Reader
         } else {
             $starts = \array_keys($reps, 0, true);
             if ($from + $count > \count($starts)) {
-                throw new FormatException('The pages hold fewer rows than the offset index says');
+                throw new ParquetException('The pages hold fewer rows than the offset index says');
             }
             $e0 = $starts[$from];
             $e1 = $starts[$from + $count] ?? \count($reps);
@@ -483,7 +488,7 @@ final class Reader
             $this->chunkBytes($rg, $leaf); // (throws the right exception)
         }
         if ($meta->numValues !== $rg->numRows) {
-            throw new FormatException("Column '{$leaf->dottedPath}' has {$meta->numValues} values in a row group of {$rg->numRows} rows");
+            throw new ParquetException("Column '{$leaf->dottedPath}' has {$meta->numValues} values in a row group of {$rg->numRows} rows");
         }
         if ($rg->numRows === 0) {
             return [];
@@ -501,8 +506,8 @@ final class Reader
      */
     public function offsetIndex(int $rowGroup, string $column): ?OffsetIndex
     {
-        $rg = $this->metadata->rowGroups[$rowGroup] ?? throw new \OutOfRangeException("There is no row group $rowGroup");
-        $leaf = $this->metadata->schema->leaf($column) ?? throw new \InvalidArgumentException("There is no column '$column'");
+        $rg = $this->metadata->rowGroups[$rowGroup] ?? throw new \ValueError("There is no row group $rowGroup");
+        $leaf = $this->metadata->schema->leaf($column) ?? throw new \ValueError("There is no column '$column'");
         return $this->offsetIndexOf($rg, $leaf);
     }
 
@@ -511,8 +516,8 @@ final class Reader
      */
     public function columnIndex(int $rowGroup, string $column): ?ColumnIndex
     {
-        $rg = $this->metadata->rowGroups[$rowGroup] ?? throw new \OutOfRangeException("There is no row group $rowGroup");
-        $leaf = $this->metadata->schema->leaf($column) ?? throw new \InvalidArgumentException("There is no column '$column'");
+        $rg = $this->metadata->rowGroups[$rowGroup] ?? throw new \ValueError("There is no row group $rowGroup");
+        $leaf = $this->metadata->schema->leaf($column) ?? throw new \ValueError("There is no column '$column'");
         return $this->columnIndexOf($rg, $leaf);
     }
 
@@ -557,7 +562,7 @@ final class Reader
     private function indexBytes(RowGroup $rg, int $offset, int $length, SchemaNode $leaf): string
     {
         if ($length > $this->maxPageSize || $offset < 4 || $offset > $this->size - $length) {
-            throw new FormatException("The page index of column '{$leaf->dottedPath}' lies outside the file or is too large");
+            throw new ParquetException("The page index of column '{$leaf->dottedPath}' lies outside the file or is too large");
         }
         $g = $this->groupIndex[\spl_object_id($rg)];
         foreach ($this->indexBlocks[$g] ?? [] as [$s, $e, $bytes]) {
@@ -580,7 +585,7 @@ final class Reader
                 return \substr($bytes, $offset - $s, $length);
             }
         }
-        throw new \LogicException('unreachable');
+        throw new \Error('unreachable');
     }
 
     private function validateOffsetIndex(OffsetIndex $oi, ColumnChunk $meta, RowGroup $rg, SchemaNode $leaf): void
@@ -591,7 +596,7 @@ final class Reader
             return;
         }
         if ($pages === []) {
-            throw new FormatException("The offset index of column '$name' lists no pages for a row group of {$rg->numRows} rows");
+            throw new ParquetException("The offset index of column '$name' lists no pages for a row group of {$rg->numRows} rows");
         }
         $chunkStart = $meta->startOffset();
         $chunkEnd = \min($this->size, $chunkStart + $meta->totalCompressedSize + self::SLACK);
@@ -599,11 +604,11 @@ final class Reader
         $prevRow = -1;
         foreach ($pages as $i => $p) {
             if ($p->compressedSize <= 0 || $p->offset < $prevEnd || $p->offset + $p->compressedSize > $chunkEnd) {
-                throw new FormatException("Page $i of column '$name' lies outside its column chunk, or overlaps the page before it");
+                throw new ParquetException("Page $i of column '$name' lies outside its column chunk, or overlaps the page before it");
             }
             // (a page of a repeated column may continue the row the previous page started: the same first row index, never a smaller one)
             if ($p->firstRowIndex < $prevRow || ($p->firstRowIndex === $prevRow && $leaf->maxRepetitionLevel === 0) || $p->firstRowIndex >= $rg->numRows || ($i === 0 && $p->firstRowIndex !== 0)) {
-                throw new FormatException("The first row indexes of the pages of column '$name' are not increasing from 0 within the row group");
+                throw new ParquetException("The first row indexes of the pages of column '$name' are not increasing from 0 within the row group");
             }
             $prevEnd = $p->offset + $p->compressedSize;
             $prevRow = $p->firstRowIndex;
@@ -626,7 +631,7 @@ final class Reader
      */
     public function candidateRanges(string $column, mixed $min = null, mixed $max = null, bool $orNull = false): array
     {
-        $leaf = $this->metadata->schema->leaf($column) ?? throw new \InvalidArgumentException("There is no column '$column'");
+        $leaf = $this->metadata->schema->leaf($column) ?? throw new \ValueError("There is no column '$column'");
         $out = [];
         $base = 0;
         foreach ($this->metadata->rowGroups as $g => $rg) {
@@ -694,8 +699,8 @@ final class Reader
      */
     public function statistics(int $rowGroup, string $column): ?ColumnStatistics
     {
-        $rg = $this->metadata->rowGroups[$rowGroup] ?? throw new \OutOfRangeException("There is no row group $rowGroup");
-        $leaf = $this->metadata->schema->leaf($column) ?? throw new \InvalidArgumentException("There is no column '$column'");
+        $rg = $this->metadata->rowGroups[$rowGroup] ?? throw new \ValueError("There is no row group $rowGroup");
+        $leaf = $this->metadata->schema->leaf($column) ?? throw new \ValueError("There is no column '$column'");
         $s = $rg->columns[$leaf->leafIndex ?? 0]->statistics;
         if ($s === null) {
             return null;
@@ -776,7 +781,7 @@ final class Reader
     {
         $size = $this->size;
         if ($size < 12) {
-            throw new FormatException("A Parquet file is at least 12 bytes; this has $size");
+            throw new ParquetException("A Parquet file is at least 12 bytes; this has $size");
         }
         $tailLen = \min($size, self::TAIL);
         $tail = $this->range($size - $tailLen, $tailLen);
@@ -785,17 +790,17 @@ final class Reader
             throw new UnsupportedException('encrypted footer (PARE)');
         }
         if ($magic !== 'PAR1') {
-            throw new FormatException('Not a Parquet file: the last four bytes are not PAR1');
+            throw new ParquetException('Not a Parquet file: the last four bytes are not PAR1');
         }
         $len = \ord($tail[$tailLen - 8]) | (\ord($tail[$tailLen - 7]) << 8) | (\ord($tail[$tailLen - 6]) << 16) | (\ord($tail[$tailLen - 5]) << 24);
         if ($len < 1 || $len > $size - 12) {
-            throw new FormatException("The footer length $len does not fit in a file of $size bytes");
+            throw new ParquetException("The footer length $len does not fit in a file of $size bytes");
         }
         if ($len + 8 > $tailLen) {
             $tail = $this->range($size - 8 - $len, $len + 8 - $tailLen) . $tail;
         }
         if ($tailLen === $size && \substr($tail, 0, 4) !== 'PAR1') {
-            throw new FormatException('Not a Parquet file: it does not start with PAR1');
+            throw new ParquetException('Not a Parquet file: it does not start with PAR1');
         }
         return MetadataParser::parse(\substr($tail, \strlen($tail) - 8 - $len, $len));
     }
@@ -805,7 +810,7 @@ final class Reader
         ++$this->reads;
         $s = ($this->read)($offset, $length);
         if (!\is_string($s) || \strlen($s) !== $length) {
-            throw new ParquetException("The range function returned " . (\is_string($s) ? \strlen($s) : \get_debug_type($s)) . " for $length bytes at offset $offset");
+            throw new \UnexpectedValueException("The range function returned " . (\is_string($s) ? \strlen($s) : \get_debug_type($s)) . " for $length bytes at offset $offset");
         }
         return $s;
     }

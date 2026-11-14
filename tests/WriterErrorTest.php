@@ -167,19 +167,19 @@ final class WriterErrorTest extends TestCase
         }
     }
 
-    public function testFinishedWriterThrowsLogicException(): void
+    public function testFinishedWriterThrowsError(): void
     {
         $w = new Writer(['a' => Type::int32()]);
         $w->finish();
-        $this->expectException(\LogicException::class);
+        $this->expectException(\Error::class);
         $w->encode(['a' => 1]);
     }
 
-    public function testFinishTwiceThrowsLogicException(): void
+    public function testFinishTwiceThrowsError(): void
     {
         $w = new Writer(['a' => Type::int32()]);
         $w->finish();
-        $this->expectException(\LogicException::class);
+        $this->expectException(\Error::class);
         $w->finish();
     }
 
@@ -204,8 +204,8 @@ final class WriterErrorTest extends TestCase
             [fn () => new Writer([]), \ValueError::class],
             [fn () => new Writer(['a' => 'int']), \TypeError::class],
             [fn () => new Writer(['' => Type::int32()]), \ValueError::class],
-            [fn () => new Writer(['a' => Type::int32()], codec: Codec::Brotli), UnsupportedException::class],
-            [fn () => new Writer(['a' => Type::int32()], codec: Codec::Lz4Raw), UnsupportedException::class],
+            [fn () => new Writer(['a' => Type::int32()], codec: Codec::Brotli), \ValueError::class],
+            [fn () => new Writer(['a' => Type::int32()], codec: Codec::Lz4Raw), \ValueError::class],
             [fn () => new Writer(['a' => Type::int32()], pageVersion: 3), \ValueError::class],
             [fn () => new Writer(['a' => Type::int32()], rowGroupRows: 0), \ValueError::class],
             [fn () => Type::decimal(39, 0), \ValueError::class],

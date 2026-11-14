@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace Charm\Parquet\Tests;
 
-use Charm\Parquet\{FormatException, Reader, ValueMode};
+use Charm\Parquet\{ParquetException, Reader, ValueMode};
 use Charm\Parquet\Internal\Logical;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
@@ -261,9 +261,9 @@ final class LogicalTest extends TestCase
         $this->assertSame(['1970-01-01T00:00:00.000000001', '1970-01-02T23:59:59.999999999', '1969-12-31T00:00:00.000000000'], $this->column(3, [], $raw, 3));
     }
 
-    public function testBadDecimalScaleIsAFormatException(): void
+    public function testBadDecimalScaleIsAParquetException(): void
     {
-        $this->expectException(FormatException::class);
+        $this->expectException(ParquetException::class);
         $this->column(1, [[6, Thrift::I32, 5], [7, Thrift::I32, -3], [8, Thrift::I32, 5]], \pack('V', 1), 1);
     }
 

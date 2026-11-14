@@ -15,7 +15,7 @@ declare(strict_types=1);
  * Prints a line per file and a table; exit status 1 on any MISMATCH or ERROR (UNSUPPORTED is a documented limit, not a failure).
  */
 
-use Charm\Parquet\{FormatException, Reader, UnsupportedException, ValueMode, Writer};
+use Charm\Parquet\{ParquetException, Reader, UnsupportedException, ValueMode, Writer};
 use Charm\Parquet\Tests\{Canonical, WriterHelper};
 
 require __DIR__ . '/../../vendor/autoload.php';
@@ -33,7 +33,7 @@ if (isset($opts['one'])) {
         $in = Reader::fromFile($opts['one'], ValueMode::Logical);
         try {
             $rows = iterator_to_array($in->rows(), false);
-        } catch (UnsupportedException|FormatException $e) {
+        } catch (ParquetException $e) {
             echo json_encode(['status' => 'unreadable', 'message' => get_class($e) . ': ' . $e->getMessage()]);
             exit(0);
         }

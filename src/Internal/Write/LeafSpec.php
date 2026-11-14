@@ -105,7 +105,7 @@ final class LeafSpec
             case 'timestamp':
                 return self::timestamp($p['unit'], $p['utc']);
         }
-        throw new \LogicException('not a leaf type: ' . $t->kind);
+        throw new \Error('not a leaf type: ' . $t->kind);
     }
 
     private static function type(string $expected, mixed $got): \TypeError

@@ -4,12 +4,12 @@ declare(strict_types=1);
 
 namespace Charm\Parquet\Tests;
 
-use Charm\Parquet\{Codec, FormatException, ParquetException, Reader, UnsupportedException};
+use Charm\Parquet\{Codec, ParquetException, Reader, UnsupportedException};
 use Charm\Zstd\Zstd;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 
-/** Files built by hand with sizes, counts and offsets that lie: each must end in a FormatException (or UnsupportedException), cheaply. */
+/** Files built by hand with sizes, counts and offsets that lie: each must end in a ParquetException (or UnsupportedException), cheaply. */
 final class HostileFileTest extends TestCase
 {
     private const INT32 = 1;
@@ -66,7 +66,7 @@ final class HostileFileTest extends TestCase
         // and with is_compressed = true the same bytes are taken for a Snappy block and refused
         $bad = FileBuilder::dataPageV2($levels, self::ints(7, 9), 3, 1, 0, [8 => [Thrift::STRUCT, [[1, Thrift::I32, 3], [2, Thrift::I32, 1], [3, Thrift::I32, 3], [4, Thrift::I32, 0],
             [5, Thrift::I32, \strlen($levels)], [6, Thrift::I32, 0], [7, Thrift::BOOL_TRUE, true]]]]);
-        $this->expectException(FormatException::class);
+        $this->expectException(ParquetException::class);
         Reader::fromString(FileBuilder::file([self::col($bad, self::INT32, true, ['codec' => Codec::Snappy->value])], 3))->readColumn(0, 'c');
     }
 
@@ -87,7 +87,7 @@ final class HostileFileTest extends TestCase
         try {
             $r->readColumn(0, 'c');
             $this->fail('read');
-        } catch (FormatException) {
+        } catch (ParquetException) {
         }
         $this->assertLessThan(1500, (\hrtime(true) - $t) / 1e6, 'took long: the whole bomb was decompressed?');
         $this->assertLessThan(8 << 20, \memory_get_peak_usage() - $base, 'memory grew by the size of the bomb');
@@ -195,7 +195,7 @@ final class HostileFileTest extends TestCase
             $r = Reader::fromString($bytes);
             $r->readRowGroup(0);
             $this->fail('the file was read');
-        } catch (FormatException|UnsupportedException) {
+        } catch (ParquetException) {
             $this->addToAssertionCount(1);
         }
         $this->assertLessThan(2000, (\hrtime(true) - $t) / 1e6, 'took long to refuse');
@@ -282,7 +282,7 @@ final class HostileFileTest extends TestCase
 
     public function testExceptionsAreParquetExceptions(): void
     {
-        $this->assertInstanceOf(ParquetException::class, new FormatException());
+        $this->assertInstanceOf(ParquetException::class, new ParquetException());
         $this->assertInstanceOf(ParquetException::class, new UnsupportedException());
         $this->assertInstanceOf(\RuntimeException::class, new ParquetException());
     }

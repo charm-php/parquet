@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace Charm\Parquet\Tests;
 
-use Charm\Parquet\{FormatException, ParquetException, Reader};
+use Charm\Parquet\{ParquetException, Reader};
 use PHPUnit\Framework\TestCase;
 
 final class RangeTest extends TestCase
@@ -83,14 +83,56 @@ final class RangeTest extends TestCase
     public function testShortReadIsAnError(): void
     {
         $bytes = Fixtures::bytes('matrix-none-v1-dict');
-        $this->expectException(ParquetException::class);
+        $this->expectException(\UnexpectedValueException::class);
         new Reader(static fn (int $o, int $l): string => \substr($bytes, $o, \max(0, $l - 1)), \strlen($bytes));
+    }
+
+    public function testRangeFunctionExceptionsPassThroughUnchanged(): void
+    {
+        $bytes = Fixtures::bytes('matrix-none-v1-dict');
+        $thrown = new \DomainException('network down');
+        try {
+            new Reader(static fn (int $o, int $l): string => throw $thrown, \strlen($bytes));
+            $this->fail('expected the range function\'s exception');
+        } catch (\DomainException $e) {
+            $this->assertSame($thrown, $e);
+        }
+    }
+
+    public function testRangeFunctionReturningANonStringIsAnUnexpectedValue(): void
+    {
+        $bytes = Fixtures::bytes('matrix-none-v1-dict');
+        $this->expectException(\UnexpectedValueException::class);
+        new Reader(static fn (int $o, int $l) => null, \strlen($bytes)); // @phpstan-ignore-line
     }
 
     public function testMissingFile(): void
     {
-        $this->expectException(ParquetException::class);
+        $this->expectException(\RuntimeException::class);
         Reader::fromFile(__DIR__ . '/fixtures/does-not-exist.parquet');
+    }
+
+    public function testMissingFileIsNotADataError(): void
+    {
+        try {
+            Reader::fromFile(__DIR__ . '/fixtures/does-not-exist.parquet');
+            $this->fail('expected a RuntimeException');
+        } catch (\RuntimeException $e) {
+            $this->assertNotInstanceOf(\UnexpectedValueException::class, $e);
+        }
+    }
+
+    public function testUnreadableFile(): void
+    {
+        $this->expectException(\RuntimeException::class);
+        Reader::fromFile(__DIR__ . '/fixtures'); // a directory: it has a size but cannot be read as a file
+    }
+
+    public function testExceptionHierarchy(): void
+    {
+        $this->assertInstanceOf(\UnexpectedValueException::class, new ParquetException());
+        $this->assertInstanceOf(ParquetException::class, new \Charm\Parquet\UnsupportedException());
+        $this->assertFalse(\class_exists(\Charm\Parquet\FormatException::class));
     }
 
     public function testNotParquet(): void
@@ -99,7 +141,7 @@ final class RangeTest extends TestCase
             try {
                 Reader::fromString($bytes);
                 $this->fail('accepted: ' . \bin2hex(\substr($bytes, 0, 8)));
-            } catch (FormatException) {
+            } catch (ParquetException) {
                 $this->addToAssertionCount(1);
             }
         }

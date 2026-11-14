@@ -135,8 +135,7 @@ final class Reader
 enum ValueMode { case Physical; case Logical; }       // Logical is the default
 enum MapMode { case Auto; case Pairs; }
 
-final class ParquetException extends \RuntimeException {}   // (the base; not final)
-final class FormatException extends ParquetException {}      // the file is corrupt, truncated or violates the format
+class ParquetException extends \UnexpectedValueException {}  // the file is corrupt, truncated or violates the format (not final)
 final class UnsupportedException extends ParquetException {} // valid, but not implemented: the message names it
 ```
 
@@ -149,7 +148,7 @@ Value objects (all `final readonly`): `FileMetadata`, `Schema` (`root`, `leaves`
   `$ranges` (a list of `[first row, row count]`, in any order, overlapping allowed) when given. Row groups with no wanted row are never
   read. Inside a row group, when a column has an offset index, only the pages that hold wanted rows (and the dictionary page) are read, with
   adjacent pages in one range call; without an offset index the chunk is read and sliced. A negative offset or limit, or a malformed range,
-  is an `\InvalidArgumentException`.
+  is a `\ValueError`.
 * **`readColumn` / `readRowGroup`** take an offset and limit relative to the row group. A leaf path gives its projected shape; a group path the assembled value.
 * **`candidateRanges($leafPath, $min, $max, $orNull)`** returns `[first row, row count]` ranges in file order (adjacent ones merged) that
   could hold a value in `[$min, $max]` (either bound may be `null`: open) or, with `$orNull`, a null. It uses the row group statistics and, when the file has
@@ -244,7 +243,7 @@ fclose($out);
 ```
 
 The writer returns bytes; it opens no file and buffers one row group. `encode()` returns the bytes that became final, `finish()` closes the writer (every later call throws
-`\LogicException`); a writer that got no row produces a valid file with no row group. `rowCount()` is the number of rows accepted so far.
+`\Error`); a writer that got no row produces a valid file with no row group. `rowCount()` is the number of rows accepted so far.
 `new Writer($reader->schema())` writes with the schema of a file you read (see below).
 
 ### An array of rows to a file in five lines
@@ -324,7 +323,7 @@ The values `Reader::rows()` returns in logical mode are accepted as they are; so
 
 | Option | Default | Meaning |
 |---|---|---|
-| `codec` | `Codec::Snappy` | `Uncompressed`, `Snappy` (pure PHP, a greedy hash matcher), `Gzip` (ext-zlib, level 6), `Zstd` (charm/zstd's compressor: Huffman-coded literals and FSE-coded sequence tables, a fast single-pass match finder; see below) |
+| `codec` | `Codec::Snappy` | `Uncompressed`, `Snappy` (pure PHP, a greedy hash matcher), `Gzip` (ext-zlib, level 6), `Zstd` (charm/zstd's compressor: Huffman-coded literals and FSE-coded sequence tables, a fast single-pass match finder; see below); any other codec is a `\ValueError`, `Gzip` without ext-zlib too |
 | `dataPageSize` | 1 MiB | target size of a data page in bytes of PLAIN-encoded values; a page always holds whole rows |
 | `rowGroupRows` | 1,048,576 | a row group is written when it has this many rows ... |
 | `rowGroupBytes` | 32 MiB | ... or when the buffered values are estimated at this many bytes of PHP memory (16 bytes per value or level, 48 + length per string) |
@@ -423,9 +422,24 @@ The speed pass (rule: keep a change only if it is at least 10 percent faster on 
 
 ## Errors and limits
 
-Every failure caused by the file is a `FormatException` (corrupt, truncated, violates the format) or an `UnsupportedException` (valid, not implemented; the message names it), both
-`ParquetException`s; the Reader throws nothing else for any input bytes, and raises no PHP warnings (the zlib functions are called with their warnings swallowed locally). A range function
-that returns the wrong number of bytes, or a missing file, is a `ParquetException` too. A wrong argument (unknown column, row group out of range, negative offset) is an `\InvalidArgumentException` or `\OutOfRangeException`.
+Every failure caused by the file is a `ParquetException` (corrupt, truncated, violates the format) or its subclass `UnsupportedException` (valid, not implemented; the message names it).
+`ParquetException` extends `\UnexpectedValueException`, the class every charm package uses for bad input data, so one `catch (\UnexpectedValueException)` covers this package and charm/zstd and charm/brotli.
+The Reader throws nothing else for any input bytes, and raises no PHP warnings (the zlib functions are called with their warnings swallowed locally). A codec's own failure (an `\UnexpectedValueException`
+from charm/zstd or charm/brotli) becomes a `ParquetException` with the original as its previous exception.
+
+The rest follows the rule PHP's own extensions use: a wrong call throws a built-in error, bad data a `\UnexpectedValueException`, and I/O a `\RuntimeException`.
+
+| What went wrong | Thrown |
+|---|---|
+| The file is corrupt, truncated or violates the format | `ParquetException` |
+| The file is valid but uses something this version does not implement | `UnsupportedException` (a `ParquetException`) |
+| Misuse: an unknown column, a row group out of range, a negative offset or limit, a malformed row range, an invalid `Writer` option (including a codec it cannot write) | `\ValueError` |
+| Misuse: a row the Writer refuses (see "Accepted values") | `\TypeError` or `\ValueError` |
+| Misuse: a call in the wrong state (any call to a finished `Writer`) | `\Error` |
+| The environment: 32-bit PHP (the `Reader` and `Writer` constructors refuse to start); `Codec::Gzip` for the `Writer` without ext-zlib | `\Error`; `\ValueError` |
+| `Reader::fromFile()` on a file that is missing or cannot be read | `\RuntimeException` |
+| The range function returns something other than exactly `$length` bytes | `\UnexpectedValueException` |
+| The range function itself throws | that exception, unchanged: the Reader neither catches nor wraps it |
 
 Sizes and counts that come from the file are checked before anything is allocated: page sizes against the column chunk, value counts against the row group, a page's decompressed size against
 its header, level values against the schema maxima, offset index entries against the chunk and file, and the lengths of index blobs against the file size.
@@ -524,7 +538,7 @@ The suite has 825 tests (about 282,000 assertions) and takes about 26 seconds. C
 * **Independent expectations:** logical values are checked against pyarrow's integer storage formatted by separate Python code (and asserted against Arrow's own string casts when the fixtures are generated); decimals of 0 to 32 bytes, dates, timestamps and LZ4 streams against vectors made by
   Python's `int.from_bytes`, `datetime` and the `lz4` package; candidate ranges against a brute-force scan; statistics against the true min and max pyarrow computes from the data.
 * **Corpus conformance:** `php tests/tools/conformance.php --mode=physical|logical` reads every file of Apache's `parquet-testing` (`data/` and `bad_data/`) with the library and with pyarrow and compares every value (flat columns one by one; nested top-level fields as assembled trees).
-  Result with pyarrow 26.0.1: of the 97 files of `data/`, 78 PASS, 16 are `UnsupportedException` (11 encrypted footers, 3 encrypted columns, 1 ALP, 1 Brotli file, `large_string_map.brotli.parquet`, whose page of 1 GiB + 4 bytes is above the page size limit) and 3 cannot be read by pyarrow itself; of the 23 files of `bad_data/`, 8 are rejected with a `FormatException` and 15 are read with values identical to pyarrow's
+  Result with pyarrow 26.0.1: of the 97 files of `data/`, 78 PASS, 16 are `UnsupportedException` (11 encrypted footers, 3 encrypted columns, 1 ALP, 1 Brotli file, `large_string_map.brotli.parquet`, whose page of 1 GiB + 4 bytes is above the page size limit) and 3 cannot be read by pyarrow itself; of the 23 files of `bad_data/`, 8 are rejected with a `ParquetException` and 15 are read with values identical to pyarrow's
   (pyarrow accepts them too); 0 differences and 0 errors in either mode. Each mode compared 503 flat columns (323,875 values) and 61 nested top-level fields. Where pyarrow and this library differ by convention (`map_no_value`, a key-only map) or pyarrow is wrong (`empty_data_pages`), the oracle script says so.
 * **Fuzzing and mutation checks:** seeded truncations and bit flips (`CorruptionTest`, and outside PHPUnit over every corpus and fixture file; the final run was 288,000 mutated files, with row ranges and candidate ranges included) must give a `ParquetException` or a successful read, never a warning or another Throwable. Faults were injected into the code one at a time and the suite run: 41 faults over the sprints
   (decoders, level meaning, assembly, page selection, statistics pruning, bounds checks); each is caught by a named test, and 8 of them were not caught at first and led to new tests.

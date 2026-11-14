@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace Charm\Parquet\Internal;
 
-use Charm\Parquet\{FormatException, SchemaNode, ShreddedColumn};
+use Charm\Parquet\{ParquetException, SchemaNode, ShreddedColumn};
 
 /**
  * Turns shredded columns (dense values plus definition and repetition levels) into PHP values, column by column.
@@ -39,7 +39,7 @@ final class Assembler
         $reps = $c->repetitionLevels ?? [];
         $n = \count($reps);
         if ($defs !== null && \count($defs) !== $n) {
-            throw new FormatException("Column '{$c->leaf->dottedPath}' has " . \count($defs) . " definition levels and $n repetition levels");
+            throw new ParquetException("Column '{$c->leaf->dottedPath}' has " . \count($defs) . " definition levels and $n repetition levels");
         }
         if ($m === 1) {
             return self::slotsOneLevel($c, $dR[0], $reps, $defs);
@@ -57,7 +57,7 @@ final class Assembler
                 $alive = 0;
             } else {
                 if ($r > $alive || $d < $dR[$r - 1]) {
-                    throw new FormatException("Column '$name': repetition level $r continues a list that has no element in progress");
+                    throw new ParquetException("Column '$name': repetition level $r continues a list that has no element in progress");
                 }
                 $cnt[$r][$last[$r]]++;
                 $slot[$r][] = $d;
@@ -114,7 +114,7 @@ final class Assembler
                 }
             } else {
                 if (!$alive || $d < $dR) {
-                    throw new FormatException("Column '{$c->leaf->dottedPath}': repetition level {$reps[$i]} continues a list that has no element in progress");
+                    throw new ParquetException("Column '{$c->leaf->dottedPath}': repetition level {$reps[$i]} continues a list that has no element in progress");
                 }
                 ++$cnt[$ci];
                 $slot1[] = $d;
@@ -150,7 +150,7 @@ final class Assembler
             $out[] = $d === $max ? $values[$k++] : null;
         }
         if ($k !== $nv) {
-            throw new FormatException("Column '{$leaf->dottedPath}': the definition levels place $k values, the page holds $nv");
+            throw new ParquetException("Column '{$leaf->dottedPath}': the definition levels place $k values, the page holds $nv");
         }
         return $out;
     }
@@ -182,7 +182,7 @@ final class Assembler
             $col = self::build($f, $data, $j);
             $cnt = \count($col);
             if ($n !== null && $cnt !== $n) {
-                throw new FormatException('The columns of a struct disagree on how many values there are (' . $n . ' and ' . $cnt . ')');
+                throw new ParquetException('The columns of a struct disagree on how many values there are (' . $n . ' and ' . $cnt . ')');
             }
             $n = $cnt;
             $cols[] = $col;
@@ -191,7 +191,7 @@ final class Assembler
         $drv = $data[$s->leaves[0]->leafIndex];
         $defs = $drv->slot[$j] ?? [];
         if ($s->threshold !== null && \count($defs) !== $n) {
-            throw new FormatException('A struct has ' . $n . ' values but ' . \count($defs) . ' definition levels');
+            throw new ParquetException('A struct has ' . $n . ' values but ' . \count($defs) . ' definition levels');
         }
         $out = [];
         $nf = \count($names);
@@ -215,13 +215,13 @@ final class Assembler
     {
         $k = $j + 1;
         if ($s->level !== $k) {
-            throw new FormatException("A list at repetition level {$s->level} sits at nesting level $j");
+            throw new ParquetException("A list at repetition level {$s->level} sits at nesting level $j");
         }
         $drv = $data[$s->leaves[0]->leafIndex];
         $counts = $drv->cnt[$k] ?? [];
         foreach ($s->leaves as $l) {
             if (($data[$l->leafIndex]->cnt[$k] ?? []) !== $counts) {
-                throw new FormatException("The columns below '{$s->leaves[0]->dottedPath}' disagree on the lengths of their lists");
+                throw new ParquetException("The columns below '{$s->leaves[0]->dottedPath}' disagree on the lengths of their lists");
             }
         }
         if ($s->kind === Shape::LIST) {
@@ -232,7 +232,7 @@ final class Assembler
             $keys = self::build($s->key, $data, $k);
             $vals = $s->value !== null ? self::build($s->value, $data, $k) : \array_fill(0, \count($keys), null);
             if (\count($keys) !== \count($vals)) {
-                throw new FormatException('A map has ' . \count($keys) . ' keys and ' . \count($vals) . ' values');
+                throw new ParquetException('A map has ' . \count($keys) . ' keys and ' . \count($vals) . ' values');
             }
             $el = $keys;
         }
@@ -274,7 +274,7 @@ final class Assembler
             }
         }
         if ($off !== $total) {
-            throw new FormatException("The lists below '{$s->leaves[0]->dottedPath}' hold $off elements, their column has $total");
+            throw new ParquetException("The lists below '{$s->leaves[0]->dottedPath}' hold $off elements, their column has $total");
         }
         return $out;
     }
@@ -302,7 +302,7 @@ final class Assembler
                 }
             }
             if ($off !== \count($col)) {
-                throw new FormatException("The lists of a column hold $off elements, its column has " . \count($col));
+                throw new ParquetException("The lists of a column hold $off elements, its column has " . \count($col));
             }
             $col = $out;
         }

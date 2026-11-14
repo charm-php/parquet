@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace Charm\Parquet\Tests;
 
-use Charm\Parquet\{FormatException, MapMode, Reader, UnsupportedException, ValueMode};
+use Charm\Parquet\{ParquetException, MapMode, Reader, UnsupportedException, ValueMode};
 use PHPUnit\Framework\TestCase;
 
 /**
@@ -187,7 +187,7 @@ final class NestedLegacyTest extends TestCase
             try {
                 \iterator_to_array(Reader::fromString($bytes)->rows());
                 $this->fail('the file was read');
-            } catch (FormatException|UnsupportedException) {
+            } catch (ParquetException) {
                 $this->addToAssertionCount(1);
             }
         } finally {
@@ -210,7 +210,7 @@ final class NestedLegacyTest extends TestCase
             try {
                 Reader::fromString($bytes)->readShredded(0, 'l.list.element');
                 $this->fail("accepted: $what");
-            } catch (FormatException) {
+            } catch (ParquetException) {
                 $this->addToAssertionCount(1);
             }
         }

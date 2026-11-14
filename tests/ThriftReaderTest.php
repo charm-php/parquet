@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace Charm\Parquet\Tests;
 
-use Charm\Parquet\FormatException;
+use Charm\Parquet\ParquetException;
 use Charm\Parquet\Thrift\CompactReader;
 use PHPUnit\Framework\TestCase;
 
@@ -81,7 +81,7 @@ final class ThriftReaderTest extends TestCase
         $this->assertSame(4 + \strlen($struct), $r->position());
     }
 
-    public function testEveryTruncationOfAComplexStructIsAFormatException(): void
+    public function testEveryTruncationOfAComplexStructIsAParquetException(): void
     {
         $bytes = Thrift::struct([
             [1, Thrift::LIST, [Thrift::STRUCT, [[[1, Thrift::BINARY, 'hello'], [2, Thrift::I64, 1 << 40]], [[1, Thrift::DOUBLE, 1.5]]]]],
@@ -92,7 +92,7 @@ final class ThriftReaderTest extends TestCase
             try {
                 (new CompactReader(\substr($bytes, 0, $n)))->readStruct();
                 $this->fail("a struct cut to $n of " . \strlen($bytes) . ' bytes was read');
-            } catch (FormatException) {
+            } catch (ParquetException) {
                 $this->addToAssertionCount(1);
             }
         }
@@ -104,7 +104,7 @@ final class ThriftReaderTest extends TestCase
         for ($i = 0; $i < CompactReader::MAX_DEPTH + 2; $i++) {
             $deep = "\x1C" . $deep . "\x00"; // field 1, type struct, then the nested struct, then its stop
         }
-        $this->expectException(FormatException::class);
+        $this->expectException(ParquetException::class);
         $this->expectExceptionMessageMatches('/nested deeper/');
         (new CompactReader($deep))->readStruct();
     }
@@ -125,32 +125,32 @@ final class ThriftReaderTest extends TestCase
         for ($i = 0; $i < 50; $i++) {
             $bytes .= "\x19";
         }
-        $this->expectException(FormatException::class);
+        $this->expectException(ParquetException::class);
         (new CompactReader($bytes . "\x00"))->readStruct();
     }
 
     public function testContainerThatAnnouncesMoreElementsThanBytesLeft(): void
     {
-        $this->expectException(FormatException::class);
+        $this->expectException(ParquetException::class);
         // field 1, list, long form (15), 2^28 elements of i32, and no data
         (new CompactReader("\x19\xF5" . Thrift::varint(1 << 28)))->readStruct();
     }
 
     public function testBinaryLongerThanTheData(): void
     {
-        $this->expectException(FormatException::class);
+        $this->expectException(ParquetException::class);
         (new CompactReader("\x18" . Thrift::varint(1 << 30) . 'abc'))->readStruct();
     }
 
     public function testNegativeLengthFromAnOverlongVarint(): void
     {
-        $this->expectException(FormatException::class);
+        $this->expectException(ParquetException::class);
         (new CompactReader("\x18" . \str_repeat("\xFF", 9) . "\x01"))->readStruct();
     }
 
     public function testVarintLongerThanTenBytes(): void
     {
-        $this->expectException(FormatException::class);
+        $this->expectException(ParquetException::class);
         (new CompactReader("\x15" . \str_repeat("\x80", 12) . "\x01\x00"))->readStruct();
     }
 
@@ -160,11 +160,11 @@ final class ThriftReaderTest extends TestCase
             try {
                 (new CompactReader($bytes))->readStruct();
                 $this->fail('type nibble accepted');
-            } catch (FormatException) {
+            } catch (ParquetException) {
                 $this->addToAssertionCount(1);
             }
         }
-        $this->expectException(FormatException::class);
+        $this->expectException(ParquetException::class);
         (new CompactReader("\x19\x1D\x00"))->readStruct(); // a list with element type 13
     }
 
@@ -174,7 +174,7 @@ final class ThriftReaderTest extends TestCase
             try {
                 (new CompactReader($bytes))->readStruct();
                 $this->fail('accepted');
-            } catch (FormatException) {
+            } catch (ParquetException) {
                 $this->addToAssertionCount(1);
             }
         }
@@ -182,13 +182,13 @@ final class ThriftReaderTest extends TestCase
 
     public function testEmptyInput(): void
     {
-        $this->expectException(FormatException::class);
+        $this->expectException(ParquetException::class);
         (new CompactReader(''))->readStruct();
     }
 
     public function testStartOutsideTheBuffer(): void
     {
-        $this->expectException(FormatException::class);
+        $this->expectException(ParquetException::class);
         new CompactReader('abc', 5);
     }
 
@@ -206,7 +206,7 @@ final class ThriftReaderTest extends TestCase
                 }
                 try {
                     (new CompactReader($b))->readStruct();
-                } catch (FormatException) {
+                } catch (ParquetException) {
                 }
                 $this->addToAssertionCount(1);
             }

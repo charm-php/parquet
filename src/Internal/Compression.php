@@ -4,9 +4,9 @@ declare(strict_types=1);
 
 namespace Charm\Parquet\Internal;
 
-use Charm\Parquet\{Codec, FormatException, UnsupportedException};
-use Charm\Brotli\{Brotli, DecodeException as BrotliDecodeException};
-use Charm\Zstd\{DecodeException, Zstd};
+use Charm\Parquet\{Codec, ParquetException, UnsupportedException};
+use Charm\Brotli\Brotli;
+use Charm\Zstd\Zstd;
 
 /** Page decompression: the result must have exactly the size the page header promises. */
 final class Compression
@@ -41,7 +41,7 @@ final class Compression
                 // (an @ would still call the caller's error handler, which may turn warnings into exceptions).
                 $out = self::quietly(static fn () => \gzdecode($body, $expected + 1));
                 if ($out === false) {
-                    throw new FormatException('A GZIP page does not decompress (or is larger than its header says)');
+                    throw new ParquetException('A GZIP page does not decompress (or is larger than its header says)');
                 }
                 if (\strlen($out) < $expected) {
                     $out = self::gzipMembers($body, $expected); // (gzdecode() stops after the first member)
@@ -55,7 +55,7 @@ final class Compression
                 if ($out === null) {
                     try {
                         return Lz4::block($body, $expected);
-                    } catch (FormatException $e) {
+                    } catch (ParquetException $e) {
                         $out = Lz4::frame($body, $expected) ?? throw $e;
                     }
                 }
@@ -65,28 +65,28 @@ final class Compression
                     // ext-brotli, when it is loaded: much faster than the pure-PHP decoder
                     $out = self::quietly(static fn () => \brotli_uncompress($body, $expected + 1));
                     if ($out === false) {
-                        throw new FormatException('A BROTLI page does not decompress (or is larger than its header says)');
+                        throw new ParquetException('A BROTLI page does not decompress (or is larger than its header says)');
                     }
                     break;
                 }
                 try {
                     $out = Brotli::decompress($body, $expected);
-                } catch (BrotliDecodeException $e) {
-                    throw new FormatException('A BROTLI page does not decompress: ' . $e->getMessage(), 0, $e);
+                } catch (\UnexpectedValueException $e) {
+                    throw new ParquetException('A BROTLI page does not decompress: ' . $e->getMessage(), 0, $e);
                 }
                 break;
             case Codec::Zstd:
                 try {
                     $out = Zstd::decompress($body, $expected);
-                } catch (DecodeException $e) {
-                    throw new FormatException('A ZSTD page does not decompress: ' . $e->getMessage(), 0, $e);
+                } catch (\UnexpectedValueException $e) {
+                    throw new ParquetException('A ZSTD page does not decompress: ' . $e->getMessage(), 0, $e);
                 }
                 break;
             default:
                 throw new UnsupportedException('codec ' . \strtoupper($codec->name)); // (LZO)
         }
         if (\strlen($out) !== $expected) {
-            throw new FormatException('A page is ' . \strlen($out) . " bytes after decompression, its header says $expected");
+            throw new ParquetException('A page is ' . \strlen($out) . " bytes after decompression, its header says $expected");
         }
         return $out;
     }
@@ -114,21 +114,21 @@ final class Compression
         while ($pos < $len) {
             $ctx = self::quietly(static fn () => \inflate_init(\ZLIB_ENCODING_GZIP));
             if ($ctx === false) {
-                throw new FormatException('A GZIP page cannot be inflated');
+                throw new ParquetException('A GZIP page cannot be inflated');
             }
             $off = $pos;
             while (true) {
                 $piece = \substr($body, $off, 16384);
                 if ($piece === '') {
-                    throw new FormatException('A GZIP member is cut off');
+                    throw new ParquetException('A GZIP member is cut off');
                 }
                 $d = self::quietly(static fn () => \inflate_add($ctx, $piece, \ZLIB_SYNC_FLUSH));
                 if ($d === false) {
-                    throw new FormatException('A GZIP page does not decompress');
+                    throw new ParquetException('A GZIP page does not decompress');
                 }
                 $out .= $d;
                 if (\strlen($out) > $expected) {
-                    throw new FormatException('A GZIP page is larger than its header says');
+                    throw new ParquetException('A GZIP page is larger than its header says');
                 }
                 if (\inflate_get_status($ctx) === \ZLIB_STREAM_END) {
                     $pos += \inflate_get_read_len($ctx);

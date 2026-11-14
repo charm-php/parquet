@@ -11,7 +11,7 @@ declare(strict_types=1);
  * One line per file: PASS | UNSUPPORTED <feature> | FAIL <first difference> | ERROR <unexpected Throwable or PHP warning>
  *                    | ORACLE-CANNOT-READ <pyarrow's error>
  * data/:     the file must read and equal pyarrow's values (UNSUPPORTED where the library says so).
- * bad_data/: the library must reject the file with FormatException (PASS) or UnsupportedException (UNSUPPORTED); reading it
+ * bad_data/: the library must reject the file with ParquetException (PASS) or UnsupportedException (UNSUPPORTED); reading it
  *            successfully is a FAIL, a hang is an ERROR. Each file is read in its own PHP process (dump.php) under a timeout.
  * Comparison (physical values, bit-exact floats, byte strings in hex) is explained in oracle.py. Exit status 1 on any FAIL or ERROR.
  */
@@ -82,8 +82,6 @@ foreach (['data' => false, 'bad_data' => true] as $dir => $bad) {
             }
             if ($status === 'error') {
                 $line = ['ERROR', $r['message']];
-            } elseif ($status === 'parquet') {
-                $line = ['ERROR', 'ParquetException that is neither Format nor Unsupported: ' . $r['message']];
             } elseif ($status === 'format') {
                 if ($bad) {
                     $line = ['PASS', 'rejected: ' . $r['message']];
@@ -91,7 +89,7 @@ foreach (['data' => false, 'bad_data' => true] as $dir => $bad) {
                     // the library calls the file corrupt: only acceptable if pyarrow cannot read it either
                     file_put_contents($dump, json_encode(['columns' => [], 'rows' => null]));
                     $v = $havePython ? trim(run(escapeshellarg($python) . ' ' . escapeshellarg(__DIR__ . '/oracle.py') . ' ' . escapeshellarg($file) . ' ' . escapeshellarg($dump), $timeout)[0]) : 'PASS';
-                    $line = str_starts_with($v, 'ORACLE-CANNOT-READ') ? ['ORACLE-CANNOT-READ', 'both reject it: ' . $r['message']] : ['FAIL', 'FormatException on a file pyarrow reads: ' . $r['message']];
+                    $line = str_starts_with($v, 'ORACLE-CANNOT-READ') ? ['ORACLE-CANNOT-READ', 'both reject it: ' . $r['message']] : ['FAIL', 'ParquetException on a file pyarrow reads: ' . $r['message']];
                 }
             } else {
                 // read (completely or in part): compare with pyarrow
